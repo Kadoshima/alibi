@@ -1,0 +1,20 @@
+{
+    "name": "photo-marketplace-backend",
+    "version": "1.0.0",
+    "description": "写真マーケットプレイスのバックエンド Lambda 関数",
+    "main": "index.js",
+    "scripts": {
+      "test": "jest",
+      "lint": "eslint ."
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+      "aws-sdk": "^2.1354.0",
+      "uuid": "^9.0.0"
+    },
+    "devDependencies": {
+      "eslint": "^8.38.0",
+      "jest": "^29.5.0"
+    }
+  }
