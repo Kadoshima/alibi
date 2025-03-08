@@ -1,2 +1,2 @@
 dist/lambda_functions.zip
-node_modules/
+node_modules/terraform/.terraform/
