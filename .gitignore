@@ -1,0 +1,41 @@
+# deps
+node_modules/
+.pnp
+.pnp.js
+
+# testing
+coverage/
+test-results/
+playwright-report/
+
+# next
+.next/
+out/
+build
+dist
+
+# env
+.env
+.env*.local
+.env.local
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# system
+.DS_Store
+*.pem
+*.tsbuildinfo
+next-env.d.ts
+
+# ide
+.vscode/
+.idea/
+
+# db
+*.sqlite
+*.db
+prisma/dev.db*
