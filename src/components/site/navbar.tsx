@@ -11,21 +11,26 @@ export async function Navbar() {
         <Link href="/" className="flex items-center gap-2 text-lg font-bold">
           <span className="rounded bg-primary px-2 py-1 text-primary-foreground">Alibi</span>
           <span className="hidden text-sm font-normal text-muted-foreground sm:inline">
-            合法的アリバイサービス・プラットフォーム
+            Photo Market
           </span>
         </Link>
         <nav className="flex items-center gap-2 text-sm">
-          <Link href="/services" className="rounded px-3 py-2 hover:bg-accent">
-            サービス一覧
+          <Link href="/photos" className="rounded px-3 py-2 hover:bg-accent">
+            写真を探す
           </Link>
-          <Link href="/about" className="rounded px-3 py-2 hover:bg-accent">
-            私たちについて
+          <Link href="/studio" className="rounded px-3 py-2 hover:bg-accent">
+            Studio
           </Link>
-          <Link href="/legal/terms" className="rounded px-3 py-2 hover:bg-accent">
-            利用規約
+          <Link href="/pricing" className="rounded px-3 py-2 hover:bg-accent">
+            料金
           </Link>
           {user ? (
             <>
+              <Link href="/upload">
+                <Button size="sm" variant="outline">
+                  出品する
+                </Button>
+              </Link>
               <Link href="/dashboard" className="rounded px-3 py-2 hover:bg-accent">
                 マイページ
               </Link>
@@ -35,7 +40,7 @@ export async function Navbar() {
                 </Link>
               )}
               <form action="/api/auth/signout" method="post">
-                <Button variant="outline" size="sm" type="submit">
+                <Button variant="ghost" size="sm" type="submit">
                   ログアウト
                 </Button>
               </form>

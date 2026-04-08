@@ -3,24 +3,36 @@ export const metadata = { title: "About / 特定商取引法に基づく表記" 
 export default function AboutPage() {
   return (
     <article className="container prose prose-slate max-w-3xl py-12 dark:prose-invert">
-      <h1>Alibi について</h1>
+      <h1>Alibi Photo Market について</h1>
       <p>
-        Alibiは、合法かつ倫理的な目的でのアリバイ関連サービスを提供するマーケットプレイスです。
-        私たちは、フリーランスで働く方々の正当な在籍確認、やむを得ない代理出席、
-        人生の大切な瞬間のサプライズ演出、プライバシー保護相談など、
-        「人が法の範囲で困っている場面」に寄り添う仲介者でありたいと考えています。
+        Alibi は、クリエイターとユーザーが安心して写真を取引できる
+        <strong>プライバシー配慮型の写真マーケットプレイス</strong>です。
       </p>
 
-      <h2>私たちのミッション</h2>
-      <p>
-        グレーな業界を「合法・審査制・透明性」の三原則で再定義すること。
-        全てのサービスは審査を経て公開され、全ての取引は利用目的の申告を必須としています。
-      </p>
+      <h2>私たちが解決する課題</h2>
+      <ul>
+        <li>
+          <strong>EXIF の事故</strong> —
+          一般的なストックサイトは位置情報を自動削除してくれない。Alibi は全て自動処理。
+        </li>
+        <li>
+          <strong>顔が写り込む問題</strong> —
+          通行人や背景の人物が写っていても、ぼかし候補を自動提示して安全に公開できる。
+        </li>
+        <li>
+          <strong>クリエイター取り分が低い</strong> —
+          業界平均50%前後に対し、Alibi は80%をクリエイターに還元。
+        </li>
+        <li>
+          <strong>編集ツールが別途必要</strong> —
+          Studio をブラウザで無料提供。インストール不要。
+        </li>
+      </ul>
 
       <h2 id="company">特定商取引法に基づく表記</h2>
       <dl className="grid grid-cols-1 gap-2 sm:grid-cols-[200px_1fr]">
         <dt className="font-semibold">販売業者</dt>
-        <dd>Alibi Platform 株式会社（仮）</dd>
+        <dd>Alibi Photo Market 株式会社(仮称)</dd>
         <dt className="font-semibold">代表責任者</dt>
         <dd>—</dd>
         <dt className="font-semibold">所在地</dt>
@@ -30,13 +42,16 @@ export default function AboutPage() {
         <dt className="font-semibold">メールアドレス</dt>
         <dd>support@alibi.example.com</dd>
         <dt className="font-semibold">販売価格</dt>
-        <dd>各サービスページに表示</dd>
+        <dd>各写真詳細ページに表示(税込)</dd>
         <dt className="font-semibold">お支払い方法</dt>
-        <dd>クレジットカード決済（Stripe）</dd>
-        <dt className="font-semibold">商品引渡時期</dt>
-        <dd>予約日時に提供者がサービスを実施</dd>
+        <dd>クレジットカード決済(Stripe)</dd>
+        <dt className="font-semibold">商品の引渡</dt>
+        <dd>決済完了後、ダウンロード画面にて即時引渡</dd>
         <dt className="font-semibold">返品・キャンセル</dt>
-        <dd>利用規約第5条に準じます</dd>
+        <dd>
+          デジタルコンテンツの性質上、ダウンロード後の返金は原則不可。
+          重大な欠陥・権利侵害の場合は全額返金。
+        </dd>
       </dl>
     </article>
   );

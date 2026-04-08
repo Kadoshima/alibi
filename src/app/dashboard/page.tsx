@@ -2,30 +2,30 @@ import Link from "next/link";
 import { requireUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { formatDateTime, formatJpy } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { formatJpy } from "@/lib/utils";
 
 export const metadata = { title: "マイページ" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const [bookings, services] = await Promise.all([
-    prisma.booking.findMany({
-      where: {
-        OR: [{ customerId: user.id }, { providerId: user.id }],
-      },
-      include: { service: { select: { title: true, slug: true } } },
+  const [purchases, uploads, earningsAgg] = await Promise.all([
+    prisma.photoPurchase.findMany({
+      where: { buyerId: user.id },
+      include: { photo: { select: { title: true, slug: true } } },
       orderBy: { createdAt: "desc" },
-      take: 10,
+      take: 5,
     }),
-    user.role === "PROVIDER" || user.role === "ADMIN"
-      ? prisma.service.findMany({
-          where: { providerId: user.id },
-          orderBy: { createdAt: "desc" },
-          take: 10,
-        })
-      : Promise.resolve([]),
+    prisma.photo.findMany({
+      where: { ownerId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+    prisma.earning.aggregate({
+      where: { userId: user.id, status: "AVAILABLE" },
+      _sum: { amountJpy: true },
+    }),
   ]);
 
   return (
@@ -34,80 +34,77 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold">マイページ</h1>
           <p className="text-muted-foreground">
-            {user.name ?? user.email} さん / ロール: {user.role} / KYC: {user.kycStatus}
+            {user.name ?? user.email} さん / ロール: {user.role}
           </p>
         </div>
-        {user.role === "PROVIDER" && (
-          <Link
-            href="/dashboard/services/new"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            新規サービス登録
+        <div className="flex gap-2">
+          <Link href="/upload">
+            <Button>写真をアップロード</Button>
           </Link>
-        )}
+          <Link href="/studio">
+            <Button variant="outline">編集ツールを開く</Button>
+          </Link>
+        </div>
       </div>
 
-      {user.kycStatus !== "APPROVED" && (
-        <Card className="mt-6 border-amber-300 bg-amber-50">
+      <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-amber-900">本人確認（KYC）が未完了です</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">購入数</CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-amber-900">
-            予約・決済・サービス提供を行うには本人確認が必要です。
-            <Link href="/dashboard/kyc" className="ml-2 underline">
-              手続きを開始
-            </Link>
+          <CardContent className="text-2xl font-bold">{purchases.length}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">出品数</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold">{uploads.length}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-muted-foreground">未出金売上</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-bold text-primary">
+            {formatJpy(earningsAgg._sum.amountJpy ?? 0)}
           </CardContent>
         </Card>
-      )}
+      </div>
 
-      <section className="mt-8">
-        <h2 className="text-xl font-semibold">最近の予約</h2>
-        <div className="mt-4 space-y-3">
-          {bookings.length === 0 && (
-            <p className="text-sm text-muted-foreground">予約はまだありません。</p>
+      <div className="mt-8 flex flex-wrap gap-4 text-sm">
+        <Link href="/dashboard/purchases" className="text-primary underline">
+          購入履歴・ダウンロード
+        </Link>
+        <Link href="/dashboard/uploads" className="text-primary underline">
+          出品中の写真
+        </Link>
+        <Link href="/dashboard/sales" className="text-primary underline">
+          売上
+        </Link>
+      </div>
+
+      <section className="mt-10">
+        <h2 className="text-xl font-semibold">最近の購入</h2>
+        <div className="mt-3 space-y-2">
+          {purchases.length === 0 && (
+            <p className="text-sm text-muted-foreground">購入履歴はまだありません。</p>
           )}
-          {bookings.map((b) => (
-            <Link key={b.id} href={`/dashboard/bookings/${b.id}`}>
+          {purchases.map((p) => (
+            <Link href={`/photos/${p.photo.slug}`} key={p.id}>
               <Card className="transition hover:border-primary">
-                <CardContent className="flex items-center justify-between p-4">
+                <CardContent className="flex items-center justify-between p-4 text-sm">
                   <div>
-                    <div className="font-medium">{b.service.title}</div>
+                    <div className="font-medium">{p.photo.title}</div>
                     <div className="text-xs text-muted-foreground">
-                      {formatDateTime(b.scheduledFor)}
+                      {p.licenseKind} / {p.status}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <Badge variant="secondary">{b.status}</Badge>
-                    <div className="text-sm font-bold">{formatJpy(b.totalJpy)}</div>
-                  </div>
+                  <div className="font-bold">{formatJpy(p.grossJpy - p.discountJpy)}</div>
                 </CardContent>
               </Card>
             </Link>
           ))}
         </div>
       </section>
-
-      {services.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-xl font-semibold">あなたのサービス</h2>
-          <div className="mt-4 grid gap-3">
-            {services.map((s) => (
-              <Card key={s.id}>
-                <CardContent className="flex items-center justify-between p-4">
-                  <div>
-                    <div className="font-medium">{s.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatJpy(s.priceJpy)} / {s.durationMin}分
-                    </div>
-                  </div>
-                  <Badge variant="secondary">{s.status}</Badge>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

@@ -6,28 +6,30 @@ export function Footer() {
       <div className="container py-10 text-sm">
         <div className="grid gap-8 md:grid-cols-4">
           <div>
-            <h3 className="mb-3 font-semibold">Alibi</h3>
+            <h3 className="mb-3 font-semibold">Alibi Photo Market</h3>
             <p className="text-muted-foreground">
-              合法的な目的に限定したアリバイ関連サービスのマーケットプレイスです。
-              違法・反社会的な用途への利用は固くお断りしております。
+              プライバシー配慮型の写真マーケット。EXIF削除・顔ぼかし・商用ライセンスを一体化。
             </p>
           </div>
           <div>
-            <h4 className="mb-3 font-semibold">サービス</h4>
+            <h4 className="mb-3 font-semibold">使う</h4>
             <ul className="space-y-2 text-muted-foreground">
               <li>
-                <Link href="/services">サービス一覧</Link>
+                <Link href="/photos">写真を探す</Link>
               </li>
               <li>
-                <Link href="/services?category=EMPLOYMENT_VERIFICATION">在籍確認サポート</Link>
+                <Link href="/studio">Studio(編集ツール)</Link>
               </li>
               <li>
-                <Link href="/services?category=SURPRISE_PLANNING">サプライズ企画</Link>
+                <Link href="/upload">写真を出品</Link>
+              </li>
+              <li>
+                <Link href="/pricing">料金プラン</Link>
               </li>
             </ul>
           </div>
           <div>
-            <h4 className="mb-3 font-semibold">会社情報</h4>
+            <h4 className="mb-3 font-semibold">会社</h4>
             <ul className="space-y-2 text-muted-foreground">
               <li>
                 <Link href="/about">About</Link>
@@ -50,13 +52,13 @@ export function Footer() {
                 <Link href="/legal/privacy">プライバシーポリシー</Link>
               </li>
               <li>
-                <Link href="/legal/prohibited">禁止事項</Link>
+                <Link href="/legal/license">ライセンス条項</Link>
               </li>
             </ul>
           </div>
         </div>
         <div className="mt-8 border-t pt-6 text-center text-muted-foreground">
-          © {new Date().getFullYear()} Alibi Platform. All rights reserved.
+          © {new Date().getFullYear()} Alibi Photo Market. All rights reserved.
         </div>
       </div>
     </footer>

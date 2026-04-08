@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { bookingCreateSchema, registerSchema } from "@/lib/validators";
+import {
+  registerSchema,
+  photoCreateSchema,
+  purchaseCreateSchema,
+  uploadInitSchema,
+} from "@/lib/validators";
 
 describe("registerSchema", () => {
   it("accepts valid input", () => {
@@ -33,39 +38,83 @@ describe("registerSchema", () => {
   });
 });
 
-describe("bookingCreateSchema", () => {
-  const base = {
-    serviceId: "clx2pd1aj0000008l6hwm9wcg",
-    scheduledFor: new Date(Date.now() + 86_400_000).toISOString(),
-    purpose: "フリーランスの賃貸契約のため実態確認のサポートをお願いしたい。",
-    purposeConsent: true,
+describe("uploadInitSchema", () => {
+  it("accepts a valid JPEG upload", () => {
+    expect(
+      uploadInitSchema.safeParse({
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        bytes: 1_200_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects oversized files", () => {
+    expect(
+      uploadInitSchema.safeParse({
+        filename: "big.jpg",
+        mimeType: "image/jpeg",
+        bytes: 100 * 1024 * 1024,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects disallowed mime types", () => {
+    expect(
+      uploadInitSchema.safeParse({
+        filename: "shady.exe",
+        mimeType: "application/octet-stream",
+        bytes: 100,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("photoCreateSchema", () => {
+  const valid = {
+    title: "夕日の富士山",
+    description: "とても美しい夕日の写真",
+    priceJpy: 980,
+    maxLicense: "COMMERCIAL" as const,
+    tagSlugs: ["landscape"],
+    uploadKey: "uploads/abc/xyz.jpg",
+    originalWidth: 4000,
+    originalHeight: 2666,
+    originalBytes: 4_000_000,
+    originalMime: "image/jpeg" as const,
   };
 
-  it("accepts legitimate purpose", () => {
-    expect(bookingCreateSchema.safeParse(base).success).toBe(true);
+  it("accepts a well-formed payload", () => {
+    expect(photoCreateSchema.safeParse(valid).success).toBe(true);
   });
 
-  it("rejects past date", () => {
-    const res = bookingCreateSchema.safeParse({
-      ...base,
-      scheduledFor: new Date(Date.now() - 86_400_000).toISOString(),
-    });
-    expect(res.success).toBe(false);
+  it("rejects too-low price", () => {
+    expect(photoCreateSchema.safeParse({ ...valid, priceJpy: 10 }).success).toBe(false);
   });
 
-  it("blocks prohibited keywords", () => {
-    const res = bookingCreateSchema.safeParse({
-      ...base,
-      purpose: "配偶者に対する不倫を隠すために利用したいです。よろしくお願いします。",
-    });
-    expect(res.success).toBe(false);
+  it("rejects invalid mime type", () => {
+    expect(
+      photoCreateSchema.safeParse({ ...valid, originalMime: "application/pdf" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("purchaseCreateSchema", () => {
+  it("accepts valid purchase request", () => {
+    expect(
+      purchaseCreateSchema.safeParse({
+        photoId: "clx2pd1aj0000008l6hwm9wcg",
+        licenseKind: "PERSONAL",
+      }).success,
+    ).toBe(true);
   });
 
-  it("requires purpose consent", () => {
-    const res = bookingCreateSchema.safeParse({
-      ...base,
-      purposeConsent: false,
-    });
-    expect(res.success).toBe(false);
+  it("rejects unknown license kind", () => {
+    expect(
+      purchaseCreateSchema.safeParse({
+        photoId: "clx2pd1aj0000008l6hwm9wcg",
+        licenseKind: "GODMODE",
+      }).success,
+    ).toBe(false);
   });
 });

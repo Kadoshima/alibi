@@ -1,32 +1,46 @@
 import { prisma } from "@/lib/prisma";
-import type { Coupon } from "@prisma/client";
+import type { Coupon, LicenseKind } from "@prisma/client";
 
-export type PriceBreakdown = {
-  subtotalJpy: number;
+// ライセンス倍率
+// PERSONAL を基準(x1)とし、COMMERCIAL / EXTENDED は倍率で算出。
+export const LICENSE_MULTIPLIER: Record<LicenseKind, number> = {
+  PERSONAL: 1,
+  COMMERCIAL: 3,
+  EXTENDED: 6,
+};
+
+export type PhotoPriceBreakdown = {
+  licenseKind: LicenseKind;
+  basePriceJpy: number; // PERSONAL価格
+  grossJpy: number; // ライセンス倍率適用後
   discountJpy: number;
   platformFeeJpy: number;
-  providerEarningsJpy: number;
-  totalJpy: number;
+  creatorEarningsJpy: number;
+  totalJpy: number; // 購入者請求額
   couponCode?: string;
 };
 
-// マーケットプレイス収益の心臓部。
-// 1) サービス価格 = subtotal
-// 2) クーポン適用で discount 計算
-// 3) プロバイダ固有のフィー率（platformFeeBps）で手数料計算
-// 4) total = subtotal - discount（顧客請求額）
-// 5) providerEarnings = total - platformFee（プロバイダ入金額）
-export async function calculateBookingPrice(args: {
-  serviceId: string;
+export async function calculatePhotoPrice(args: {
+  photoId: string;
+  licenseKind: LicenseKind;
   couponCode?: string | null;
-}): Promise<PriceBreakdown> {
-  const service = await prisma.service.findUniqueOrThrow({
-    where: { id: args.serviceId },
-    include: { provider: { select: { platformFeeBps: true } } },
+}): Promise<PhotoPriceBreakdown> {
+  const photo = await prisma.photo.findUniqueOrThrow({
+    where: { id: args.photoId },
+    include: { owner: { select: { platformFeeBps: true } } },
   });
 
-  const subtotalJpy = service.priceJpy;
+  // ライセンス許可チェック
+  const allowed = maxLicenseAllows(photo.maxLicense, args.licenseKind);
+  if (!allowed) {
+    throw new Error(`License ${args.licenseKind} is not available for this photo`);
+  }
 
+  const basePriceJpy = photo.priceJpy;
+  const multiplier = LICENSE_MULTIPLIER[args.licenseKind];
+  const grossJpy = Math.floor(basePriceJpy * multiplier);
+
+  // クーポン
   let discountJpy = 0;
   let appliedCoupon: Coupon | null = null;
   if (args.couponCode) {
@@ -34,23 +48,25 @@ export async function calculateBookingPrice(args: {
     if (coupon && isCouponRedeemable(coupon)) {
       appliedCoupon = coupon;
       if (coupon.kind === "PERCENT" && coupon.percentBps) {
-        discountJpy = Math.floor((subtotalJpy * coupon.percentBps) / 10000);
+        discountJpy = Math.floor((grossJpy * coupon.percentBps) / 10000);
       } else if (coupon.kind === "FIXED" && coupon.valueJpy) {
-        discountJpy = Math.min(subtotalJpy, coupon.valueJpy);
+        discountJpy = Math.min(grossJpy, coupon.valueJpy);
       }
     }
   }
 
-  const totalJpy = Math.max(0, subtotalJpy - discountJpy);
-  const feeBps = service.provider.platformFeeBps;
+  const totalJpy = Math.max(0, grossJpy - discountJpy);
+  const feeBps = photo.owner.platformFeeBps;
   const platformFeeJpy = Math.floor((totalJpy * feeBps) / 10000);
-  const providerEarningsJpy = totalJpy - platformFeeJpy;
+  const creatorEarningsJpy = totalJpy - platformFeeJpy;
 
   return {
-    subtotalJpy,
+    licenseKind: args.licenseKind,
+    basePriceJpy,
+    grossJpy,
     discountJpy,
     platformFeeJpy,
-    providerEarningsJpy,
+    creatorEarningsJpy,
     totalJpy,
     couponCode: appliedCoupon?.code,
   };
@@ -63,4 +79,14 @@ export function isCouponRedeemable(c: Coupon): boolean {
   if (c.validUntil && c.validUntil < now) return false;
   if (c.maxRedemptions != null && c.redeemedCount >= c.maxRedemptions) return false;
   return true;
+}
+
+// `maxLicense` が PERSONAL だったら COMMERCIAL や EXTENDED は購入不可、など。
+export function maxLicenseAllows(max: LicenseKind, requested: LicenseKind): boolean {
+  const rank: Record<LicenseKind, number> = {
+    PERSONAL: 1,
+    COMMERCIAL: 2,
+    EXTENDED: 3,
+  };
+  return rank[requested] <= rank[max];
 }

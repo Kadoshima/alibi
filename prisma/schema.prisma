@@ -1,10 +1,11 @@
-// Prisma schema for Alibi marketplace
+// Prisma schema — Alibi Photo Market
+//
 // Design notes:
-// - Users can be customers, providers, or admins.
-// - Services are legal-use listings that require admin approval.
-// - Bookings carry provenance & purpose (legitimate use declaration).
-// - Payments track Stripe PaymentIntents.
-// - AuditLog captures every privileged mutation for compliance.
+// - 写真(Photo)は 1:N で PhotoAsset を持つ(ORIGINAL / MASKED / THUMB)
+// - 購入(PhotoPurchase)は 1:1 で Payment(Stripe)と紐づく
+// - ライセンスは Photo 単位で許可種別を記録、購入時に具体 License を選択
+// - Earning はクリエイターへの送金原資 ledger
+// - AuditLog は全ての privileged 操作を記録
 
 generator client {
   provider = "prisma-client-js"
@@ -15,42 +16,42 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
 enum UserRole {
-  CUSTOMER
-  PROVIDER
+  BUYER
+  CREATOR
   ADMIN
 }
 
-enum KycStatus {
-  UNVERIFIED
+enum PhotoStatus {
+  DRAFT           // アップロード直後、処理待ち
+  PROCESSING      // プライバシー処理中
+  PENDING_REVIEW  // ユーザー承認待ち or 管理者審査待ち
+  ACTIVE          // 公開中
+  SUSPENDED       // 停止
+  ARCHIVED        // アーカイブ
+}
+
+enum AssetVariant {
+  ORIGINAL // 透かしなし原本(非公開、購入者のみ署名付きURLで取得)
+  MASKED   // プライバシー処理済み(公開プレビュー)
+  THUMB    // サムネイル(公開CDN配信)
+}
+
+enum LicenseKind {
+  PERSONAL
+  COMMERCIAL
+  EXTENDED
+}
+
+enum PurchaseStatus {
   PENDING
-  APPROVED
-  REJECTED
-}
-
-enum ServiceCategory {
-  EMPLOYMENT_VERIFICATION // 在籍確認代行（フリーランス向け）
-  SCHEDULE_COVER          // スケジュール確認（プライバシー保護）
-  PROXY_ATTENDANCE        // 代理出席（冠婚葬祭）
-  SURPRISE_PLANNING       // サプライズ企画
-  PRIVACY_CONSULT         // プライバシー相談
-}
-
-enum ServiceStatus {
-  DRAFT
-  PENDING_REVIEW
-  ACTIVE
-  SUSPENDED
-  ARCHIVED
-}
-
-enum BookingStatus {
-  PENDING
-  CONFIRMED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-  DISPUTED
+  PAID
+  REFUNDED
+  FAILED
 }
 
 enum PaymentStatus {
@@ -61,10 +62,24 @@ enum PaymentStatus {
   FAILED
 }
 
+enum EarningSource {
+  SALE
+  REFERRAL
+  BONUS
+  ADJUSTMENT
+}
+
+enum EarningStatus {
+  PENDING
+  AVAILABLE
+  PAID_OUT
+  CANCELLED
+}
+
 enum SubscriptionPlan {
   FREE
   PRO
-  ENTERPRISE
+  BUSINESS
 }
 
 enum SubscriptionStatus {
@@ -79,46 +94,46 @@ enum CouponKind {
   FIXED
 }
 
+// ---------------------------------------------------------------------------
+// Users & Auth
+// ---------------------------------------------------------------------------
+
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
-  emailVerified  DateTime?
-  name           String?
-  image          String?
-  passwordHash   String?
-  role           UserRole  @default(CUSTOMER)
-  kycStatus      KycStatus @default(UNVERIFIED)
-  phone          String?
-  locale         String    @default("ja")
-  termsAcceptedAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                    String             @id @default(cuid())
+  email                 String             @unique
+  emailVerified         DateTime?
+  name                  String?
+  image                 String?
+  passwordHash          String?
+  role                  UserRole           @default(BUYER)
+  locale                String             @default("ja")
+  termsAcceptedAt       DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
-  // 売上・成長設計
-  referralCode      String?   @unique
-  referredById      String?
-  referredBy        User?     @relation("UserReferrals", fields: [referredById], references: [id])
-  referrals         User[]    @relation("UserReferrals")
-  subscriptionPlan  SubscriptionPlan   @default(FREE)
-  subscriptionStatus SubscriptionStatus @default(ACTIVE)
+  // 成長 & 収益
+  referralCode          String?            @unique
+  referredById          String?
+  referredBy            User?              @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals             User[]             @relation("UserReferrals")
+  subscriptionPlan      SubscriptionPlan   @default(FREE)
+  subscriptionStatus    SubscriptionStatus @default(ACTIVE)
   subscriptionExpiresAt DateTime?
-  stripeCustomerId  String?   @unique
-  // プロバイダ手数料率（マーケットプレイス手数料、デフォルトは20%）
-  platformFeeBps    Int       @default(2000)
+  stripeCustomerId      String?            @unique
 
-  accounts       Account[]
-  sessions       Session[]
-  services       Service[]       @relation("ProviderServices")
-  bookingsAsCustomer Booking[]   @relation("CustomerBookings")
-  bookingsAsProvider Booking[]   @relation("ProviderBookings")
-  reviewsWritten Review[]        @relation("ReviewAuthor")
-  reviewsReceived Review[]       @relation("ReviewSubject")
-  auditLogs      AuditLog[]
-  reports        Report[]        @relation("Reporter")
-  payouts        Payout[]
+  // クリエイター単位の手数料率(basis points: 2000 = 20%)
+  platformFeeBps        Int                @default(2000)
+
+  // Relations
+  accounts   Account[]
+  sessions   Session[]
+  photos     Photo[]          @relation("OwnerPhotos")
+  purchases  PhotoPurchase[]  @relation("BuyerPurchases")
+  earnings   Earning[]
+  reviews    PhotoReview[]    @relation("ReviewAuthor")
+  auditLogs  AuditLog[]
 
   @@index([role])
-  @@index([kycStatus])
 }
 
 model Account {
@@ -156,140 +171,197 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model Service {
-  id            String          @id @default(cuid())
-  providerId    String
-  title         String
-  slug          String          @unique
-  description   String          @db.Text
-  category      ServiceCategory
-  priceJpy      Int
-  durationMin   Int
-  status        ServiceStatus   @default(DRAFT)
-  legalNotes    String?         @db.Text
-  rejectedReason String?        @db.Text
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  approvedAt    DateTime?
+// ---------------------------------------------------------------------------
+// Photos & Assets
+// ---------------------------------------------------------------------------
 
-  provider  User      @relation("ProviderServices", fields: [providerId], references: [id], onDelete: Cascade)
-  bookings  Booking[]
-  reports   Report[]
+model Photo {
+  id            String      @id @default(cuid())
+  ownerId       String
+  title         String
+  slug          String      @unique
+  description   String?     @db.Text
+  status        PhotoStatus @default(DRAFT)
+
+  // 価格(PERSONAL ライセンス基準、JPY)
+  priceJpy      Int         @default(500)
+
+  // 許可する最大ライセンス種別(PERSONAL のみ / COMMERCIAL まで / EXTENDED まで)
+  maxLicense    LicenseKind @default(COMMERCIAL)
+
+  // プライバシー処理結果(監査用)
+  privacyFacesCount    Int  @default(0)
+  privacyExifStripped  Boolean @default(false)
+  privacyProcessedAt   DateTime?
+
+  // 画像メタ(MASKED のもの)
+  width         Int?
+  height        Int?
+  bytes         Int?
+  mimeType      String?
+
+  // 管理
+  rejectedReason String?    @db.Text
+  approvedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relations
+  owner      User            @relation("OwnerPhotos", fields: [ownerId], references: [id], onDelete: Cascade)
+  assets     PhotoAsset[]
+  tags       PhotoTag[]
+  purchases  PhotoPurchase[]
+  reviews    PhotoReview[]
 
   @@index([status])
-  @@index([category])
-  @@index([providerId])
+  @@index([ownerId])
+  @@index([createdAt])
 }
 
-model Booking {
-  id            String        @id @default(cuid())
-  customerId    String
-  providerId    String
-  serviceId     String
-  status        BookingStatus @default(PENDING)
-  scheduledFor  DateTime
-  purpose       String        @db.Text // 申告された利用目的（合法性確認）
-  purposeConsent Boolean      @default(false)
-  subtotalJpy   Int           @default(0)
-  discountJpy   Int           @default(0)
-  platformFeeJpy Int          @default(0)
-  totalJpy      Int
-  couponCode    String?
-  notes         String?       @db.Text
-  cancelledReason String?     @db.Text
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  completedAt   DateTime?
+model PhotoAsset {
+  id        String       @id @default(cuid())
+  photoId   String
+  variant   AssetVariant
+  bucket    String
+  s3Key     String
+  width     Int
+  height    Int
+  bytes     Int
+  mimeType  String
+  createdAt DateTime     @default(now())
 
-  customer  User     @relation("CustomerBookings", fields: [customerId], references: [id])
-  provider  User     @relation("ProviderBookings", fields: [providerId], references: [id])
-  service   Service  @relation(fields: [serviceId], references: [id])
-  payment   Payment?
-  review    Review?
-  coupon    Coupon?  @relation(fields: [couponCode], references: [code])
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
 
-  @@index([customerId])
-  @@index([providerId])
+  @@unique([photoId, variant])
+  @@index([photoId])
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  slug      String     @unique
+  createdAt DateTime   @default(now())
+
+  photos PhotoTag[]
+}
+
+model PhotoTag {
+  photoId String
+  tagId   String
+
+  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([photoId, tagId])
+  @@index([tagId])
+}
+
+// ---------------------------------------------------------------------------
+// Purchases & Payments
+// ---------------------------------------------------------------------------
+
+model PhotoPurchase {
+  id                String         @id @default(cuid())
+  buyerId           String
+  photoId           String
+  licenseKind       LicenseKind
+  grossJpy          Int
+  discountJpy       Int            @default(0)
+  platformFeeJpy    Int
+  creatorEarningsJpy Int
+  couponCode        String?
+  status            PurchaseStatus @default(PENDING)
+  downloadCount     Int            @default(0)
+  maxDownloads      Int            @default(5)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  paidAt            DateTime?
+
+  buyer    User     @relation("BuyerPurchases", fields: [buyerId], references: [id])
+  photo    Photo    @relation(fields: [photoId], references: [id])
+  payment  Payment?
+  coupon   Coupon?  @relation(fields: [couponCode], references: [code])
+
+  @@index([buyerId])
+  @@index([photoId])
   @@index([status])
-  @@index([scheduledFor])
 }
 
 model Payment {
   id                    String        @id @default(cuid())
-  bookingId             String        @unique
+  purchaseId            String        @unique
   amountJpy             Int
   status                PaymentStatus @default(PENDING)
   stripePaymentIntentId String?       @unique
   stripeChargeId        String?
+  stripeCheckoutSessionId String?     @unique
   refundedJpy           Int           @default(0)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  purchase PhotoPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
   @@index([status])
 }
 
-model Review {
-  id         String   @id @default(cuid())
-  bookingId  String   @unique
-  authorId   String
-  subjectId  String
-  rating     Int
-  comment    String?  @db.Text
-  createdAt  DateTime @default(now())
+model Earning {
+  id          String        @id @default(cuid())
+  userId      String
+  amountJpy   Int
+  source      EarningSource
+  status      EarningStatus @default(AVAILABLE)
+  sourceId    String? // 関連レコード(purchase id 等)
+  note        String?
+  createdAt   DateTime      @default(now())
+  paidOutAt   DateTime?
 
-  booking  Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  author   User    @relation("ReviewAuthor", fields: [authorId], references: [id])
-  subject  User    @relation("ReviewSubject", fields: [subjectId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([subjectId])
+  @@index([userId])
+  @@index([status])
 }
 
-model Report {
-  id          String   @id @default(cuid())
-  reporterId  String
-  serviceId   String?
-  reason      String   @db.Text
-  resolved    Boolean  @default(false)
-  createdAt   DateTime @default(now())
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
 
-  reporter User     @relation("Reporter", fields: [reporterId], references: [id])
-  service  Service? @relation(fields: [serviceId], references: [id])
+model PhotoReview {
+  id        String   @id @default(cuid())
+  photoId   String
+  authorId  String
+  rating    Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
 
-  @@index([resolved])
+  photo  Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  author User  @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@unique([photoId, authorId])
+  @@index([photoId])
 }
+
+// ---------------------------------------------------------------------------
+// Growth: Coupon
+// ---------------------------------------------------------------------------
 
 model Coupon {
-  code         String     @id
-  kind         CouponKind
-  valueJpy     Int? // FIXED用
-  percentBps   Int? // PERCENT用 (0-10000 basis points)
+  code           String     @id
+  kind           CouponKind
+  valueJpy       Int?
+  percentBps     Int?
   maxRedemptions Int?
-  redeemedCount Int       @default(0)
-  validFrom    DateTime?
-  validUntil   DateTime?
-  active       Boolean    @default(true)
-  createdAt    DateTime   @default(now())
+  redeemedCount  Int        @default(0)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
 
-  bookings Booking[]
+  purchases PhotoPurchase[]
 }
 
-model Payout {
-  id              String   @id @default(cuid())
-  providerId      String
-  amountJpy       Int
-  status          String   @default("PENDING") // PENDING | PAID | FAILED
-  stripeTransferId String?
-  periodStart     DateTime
-  periodEnd       DateTime
-  createdAt       DateTime @default(now())
-
-  provider User @relation(fields: [providerId], references: [id])
-
-  @@index([providerId])
-  @@index([status])
-}
+// ---------------------------------------------------------------------------
+// Analytics & Audit
+// ---------------------------------------------------------------------------
 
 model AnalyticsEvent {
   id        String   @id @default(cuid())

@@ -6,7 +6,14 @@ import { writeAudit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
-// Stripe requires the raw body to verify signature.
+/**
+ * Stripe Webhook handler for Photo marketplace purchases.
+ *
+ * Events of interest:
+ *  - checkout.session.completed  → PhotoPurchase PAID + Earning credit
+ *  - payment_intent.payment_failed → PhotoPurchase FAILED
+ *  - charge.refunded → PhotoPurchase REFUNDED + Earning reversal
+ */
 export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature");
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -28,24 +35,47 @@ export async function POST(req: Request) {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      const bookingId = session.metadata?.bookingId;
-      if (!bookingId) break;
+      const purchaseId = session.metadata?.purchaseId;
+      if (!purchaseId) break;
+
+      const purchase = await prisma.photoPurchase.findUnique({
+        where: { id: purchaseId },
+        include: { photo: { select: { ownerId: true, title: true } } },
+      });
+      if (!purchase) break;
+
       await prisma.$transaction([
+        prisma.photoPurchase.update({
+          where: { id: purchaseId },
+          data: { status: "PAID", paidAt: new Date() },
+        }),
         prisma.payment.update({
-          where: { bookingId },
+          where: { purchaseId },
           data: {
             status: "CAPTURED",
             stripePaymentIntentId: (session.payment_intent as string | null) ?? undefined,
           },
         }),
-        prisma.booking.update({
-          where: { id: bookingId },
-          data: { status: "CONFIRMED" },
+        prisma.earning.create({
+          data: {
+            userId: purchase.photo.ownerId,
+            amountJpy: purchase.creatorEarningsJpy,
+            source: "SALE",
+            sourceId: purchase.id,
+            status: "AVAILABLE",
+            note: `Photo sale: ${purchase.photo.title}`,
+          },
         }),
       ]);
-      await writeAudit({ action: "PAYMENT_CAPTURED", target: bookingId });
+
+      await writeAudit({
+        action: "PURCHASE_PAID",
+        target: purchaseId,
+        metadata: { amountJpy: purchase.grossJpy - purchase.discountJpy },
+      });
       break;
     }
+
     case "payment_intent.payment_failed": {
       const pi = event.data.object as Stripe.PaymentIntent;
       await prisma.payment.updateMany({
@@ -54,19 +84,43 @@ export async function POST(req: Request) {
       });
       break;
     }
+
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge;
-      if (charge.payment_intent) {
-        await prisma.payment.updateMany({
-          where: { stripePaymentIntentId: charge.payment_intent as string },
+      if (!charge.payment_intent) break;
+      const payment = await prisma.payment.findFirst({
+        where: { stripePaymentIntentId: charge.payment_intent as string },
+        include: { purchase: true },
+      });
+      if (!payment) break;
+
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: "REFUNDED", refundedJpy: charge.amount_refunded },
+        }),
+        prisma.photoPurchase.update({
+          where: { id: payment.purchase.id },
+          data: { status: "REFUNDED" },
+        }),
+        // Earning を相殺
+        prisma.earning.create({
           data: {
-            status: "REFUNDED",
-            refundedJpy: charge.amount_refunded,
+            userId: (await prisma.photo.findUniqueOrThrow({
+              where: { id: payment.purchase.photoId },
+              select: { ownerId: true },
+            })).ownerId,
+            amountJpy: -payment.purchase.creatorEarningsJpy,
+            source: "ADJUSTMENT",
+            sourceId: payment.purchase.id,
+            status: "AVAILABLE",
+            note: "Refund adjustment",
           },
-        });
-      }
+        }),
+      ]);
       break;
     }
+
     default:
       break;
   }

@@ -4,14 +4,13 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import type { UserRole, KycStatus } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
 
 declare module "next-auth" {
   interface Session extends DefaultSession {
     user: {
       id: string;
       role: UserRole;
-      kycStatus: KycStatus;
     } & DefaultSession["user"];
   }
 }
@@ -20,7 +19,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: UserRole;
-    kycStatus: KycStatus;
   }
 }
 
@@ -61,7 +59,6 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           image: user.image,
           role: user.role,
-          kycStatus: user.kycStatus,
         };
       },
     }),
@@ -72,8 +69,6 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         // @ts-expect-error extended fields
         token.role = user.role;
-        // @ts-expect-error extended fields
-        token.kycStatus = user.kycStatus;
       }
       return token;
     },
@@ -81,7 +76,6 @@ export const authOptions: NextAuthOptions = {
       if (session.user && token) {
         session.user.id = token.id;
         session.user.role = token.role;
-        session.user.kycStatus = token.kycStatus;
       }
       return session;
     },
