@@ -86,51 +86,55 @@ User ──── owns ──→  Photo ──── has ──→ PhotoAsset (o
 ## 3. プライバシー処理パイプライン
 
 アップロードされた画像は、**全て** プライバシー処理パイプラインを通過する。
+パイプラインは `src/lib/processing.ts` の `processPhoto()` で実装されている。
 
 ```
-[Upload]
-   │
+[Client]
+   │ 1. ユーザーがファイルを選択
    ▼
-┌──────────────────────────────┐
-│ 1. 生ファイル受信(一時保存)   │   Client → /api/uploads/init
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 2. 署名付きURL発行 → 直接S3   │   Client → S3 (PUT)
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 3. EXIF解析 + 完全剥ぎ取り    │   sharp.withMetadata({})
-│   - GPS / カメラ / 日時を削除 │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 4. 顔検出 (face-api.js)       │   server-side inference
-│   - 矩形リスト取得             │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 5. クライアントに候補を返却   │   /upload プレビュー
-│   - ユーザーが個別に承認       │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 6. 承認された領域をぼかし適用  │   sharp.composite(blur)
-│   - MASKED バージョンを生成   │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 7. サムネイル生成              │   sharp.resize(400)
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 8. S3 に 3バリアント保存      │   ORIGINAL (非公開) / MASKED (公開) / THUMB
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│ 9. DB に Photo + PhotoAsset  │   Prisma create
-└──────────────────────────────┘
+[POST /api/uploads/init]
+   │ 2. presigned PUT URL を発行 (uploads/{userId}/{id}.{ext})
+   ▼
+[Client → S3/MinIO/R2]
+   │ 3. 生ファイルを uploads/ プレフィックスに直接PUT
+   ▼
+[POST /api/photos]
+   │ 4. Photo 行を PROCESSING で作成
+   │ 5. processPhoto() を呼び出し:
+   │     a. GetObject でアップロードを取得
+   │     b. sharp.rotate() + jpeg(95) で EXIF を完全剥ぎ取り (ORIGINAL)
+   │     c. approvedBlurRegions[] をぼかし合成 (MASKED)
+   │     d. 任意の watermark SVG を overlay
+   │     e. 400px WebP サムネイルを生成 (THUMB)
+   │     f. 3バリアントを並列 PutObject
+   │     g. 一時 uploads/ オブジェクトを DeleteObject
+   │ 6. PhotoAsset 3行を書き込み
+   │ 7. Photo を PENDING_REVIEW に更新
+   │    (privacyExifStripped / privacyFacesCount を記録)
 ```
+
+### バケット分離
+
+```
+alibi-private/                (非公開)
+  ├── uploads/{userId}/*.*    (一時: 処理後に削除)
+  └── originals/{photoId}.*   (購入者のみ presigned GET で取得)
+
+alibi-public/                 (CDN 配信)
+  ├── masked/{photoId}.*      (公開プレビュー、watermark 可)
+  └── thumbs/{photoId}.webp   (カタログ用、WebP 400px)
+```
+
+### 注意点
+
+- **ORIGINAL は非公開バケット** に保存し、購入者のみが presigned GET URL で取得可能(デフォルト5分有効)。
+- **MASKED / THUMB は公開CDN** 配信。カタログ・詳細ページで露出するのはこれ。
+- **EXIF は必ず剥ぎ取る**。sharp は明示的にメタデータを渡さない限り剥ぎ取る挙動なので、
+  `pipeline.jpeg()` を通すだけで安全。
+- **顔検出** は MVP ではクライアント側で手動指定する前提(スタブ)。
+  次フェーズで `@vladmandic/face-api` またはクラウド AI(AWS Rekognition)に差し替え予定。
+- **パイプラインは冪等**。`photoId` をキーに同じオブジェクトキーを上書きするため、再実行可能。
+- **失敗時はエラーを配列で返す** → 呼び出し元が Photo のステータスを DRAFT に戻すなどの判断が可能。
 
 ### 注意点
 

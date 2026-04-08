@@ -13,17 +13,18 @@
 - [x] Seed スクリプトを写真デモデータ用に書き直し
 
 ### バックエンド
-- [x] `lib/storage.ts` — S3 クライアント(presigned URL 発行)
-- [x] `lib/privacy.ts` — EXIF 剥ぎ + 顔検出スタブ
+- [x] `lib/storage.ts` — S3 ラッパー(presigned URL + バケット/キー管理)
+- [x] `lib/s3.ts` — AWS SDK v3 クライアント(MinIO/R2/S3 共通)
+- [x] `lib/processing.ts` — EXIF剥ぎ+ぼかし合成+サムネ生成パイプライン
+- [x] `lib/privacy.ts` — プライバシー関連の共通ヘルパ
 - [x] `lib/pricing.ts` — ライセンス倍率ベースの価格計算
 - [x] `lib/validators.ts` — 写真アップロード用 Zod スキーマ
-- [ ] `POST /api/uploads/init` — presigned URL 発行
-- [ ] `POST /api/uploads/complete` — プライバシー処理後に Photo 作成
-- [ ] `GET /api/photos` — 一覧 API(フィルタ・検索対応)
-- [ ] `GET /api/photos/:id` — 詳細 API
-- [ ] `POST /api/purchases` — 購入作成 → Stripe Checkout
-- [ ] `GET /api/photos/:id/download` — 購入者向け署名付き URL
-- [ ] Stripe Webhook を購入モデルに対応
+- [x] `POST /api/uploads/init` — presigned URL 発行
+- [x] `POST /api/photos` — パイプライン起動 → PhotoAsset 作成
+- [x] `GET /api/photos` — 一覧 API(フィルタ・検索対応)
+- [x] `POST /api/purchases` — 購入作成 → Stripe Checkout
+- [x] `POST /api/purchases/:id/download` — 購入者向け署名付き URL
+- [x] Stripe Webhook を購入モデル(Earning台帳)に対応
 
 ### フロントエンド
 - [x] ホームページ(新コンセプト)
@@ -45,8 +46,9 @@
 - [ ] ライセンス条項ページ追加
 
 ### DevOps
-- [x] Docker compose に MinIO を追加
-- [ ] `.env.example` を更新(S3 / R2 / MinIO 変数)
+- [x] Docker compose に MinIO を追加(バケット自動作成)
+- [x] `.env.example` を更新(S3 / R2 / MinIO 変数)
+- [x] `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` + `sharp` を package.json に追加
 
 ---
 

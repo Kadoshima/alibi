@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { presignDownload } from "@/lib/storage";
+import { presignDownload, type Bucket } from "@/lib/storage";
 import { writeAudit } from "@/lib/audit";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
@@ -32,7 +32,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   }
 
   const url = await presignDownload({
-    bucket: original.bucket as "alibi-private",
+    bucket: original.bucket as Bucket,
     key: original.s3Key,
     filename: `${purchase.photo.slug}.jpg`,
     expiresSec: 300,
