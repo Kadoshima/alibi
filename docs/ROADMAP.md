@@ -37,8 +37,24 @@
 - [ ] `/dashboard/sales` — クリエイター売上ダッシュボード
 
 ### 管理
-- [ ] `/admin/photos` — 出品審査画面
-- [ ] `/admin/analytics` — 写真向け分析に書き直し
+- [x] `/admin/photos` — 出品審査画面(approve/reject/suspend/reinstate)
+
+### 非同期ジョブ
+- [x] `Job` モデル + DB-backed queue (`lib/queue.ts`)
+- [x] `POST /api/jobs/worker` (Bearer 認証)
+- [x] `process_photo` ジョブハンドラ
+- [x] `ASYNC_PROCESSING` env で sync/async 切替
+
+### 顔検出
+- [x] プロバイダ抽象 (`lib/face-detection.ts`)
+- [x] `stub` (デフォルト) / `rekognition` 実装
+- [x] processing.ts パイプラインに統合(自動+手動マージ)
+
+### Stripe Connect
+- [x] Express アカウント作成 + onboarding link
+- [x] `/dashboard/connect` UI
+- [x] 購入時の `application_fee_amount` + `transfer_data` 分割
+- [x] `account.updated` webhook で状態同期
 
 ### 法的
 - [ ] 利用規約を写真マーケット向けに書き直し

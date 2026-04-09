@@ -51,9 +51,6 @@ export default async function AdminPage() {
         <Link href="/admin/photos" className="text-primary underline">
           写真審査
         </Link>
-        <Link href="/admin/analytics" className="text-primary underline">
-          売上分析
-        </Link>
         <Link href="/admin/coupons" className="text-primary underline">
           クーポン管理
         </Link>

@@ -6,6 +6,7 @@ import { purchaseCreateSchema } from "@/lib/validators";
 import { calculatePhotoPrice } from "@/lib/pricing";
 import { getStripe } from "@/lib/stripe";
 import { writeAudit } from "@/lib/audit";
+import { canUseDirectTransfer } from "@/lib/stripe-connect";
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
@@ -22,6 +23,15 @@ export async function POST(req: Request) {
 
   const photo = await prisma.photo.findUnique({
     where: { id: parsed.data.photoId },
+    include: {
+      owner: {
+        select: {
+          id: true,
+          stripeConnectAccountId: true,
+          stripeConnectChargesEnabled: true,
+        },
+      },
+    },
   });
   if (!photo || photo.status !== "ACTIVE") {
     return NextResponse.json({ error: "販売されていない写真です" }, { status: 404 });
@@ -65,8 +75,10 @@ export async function POST(req: Request) {
     },
   });
 
-  // Stripe Checkout
+  // Stripe Checkout — uses Connect direct transfer when creator is onboarded
   let checkoutUrl: string | null = null;
+  const useDirectTransfer = canUseDirectTransfer(photo.owner);
+
   try {
     const stripe = getStripe();
     const checkout = await stripe.checkout.sessions.create({
@@ -85,7 +97,26 @@ export async function POST(req: Request) {
           },
         },
       ],
-      metadata: { purchaseId: purchase.id, photoId: photo.id },
+      metadata: {
+        purchaseId: purchase.id,
+        photoId: photo.id,
+        creatorId: photo.ownerId,
+        transferMode: useDirectTransfer ? "connect" : "platform",
+      },
+      // When the creator has completed Stripe Connect onboarding, let Stripe
+      // handle the split automatically (application_fee_amount + transfer_data).
+      // Otherwise keep the full amount on the platform balance and settle via
+      // the Earning ledger (manual payout later).
+      ...(useDirectTransfer
+        ? {
+            payment_intent_data: {
+              application_fee_amount: price.platformFeeJpy,
+              transfer_data: {
+                destination: photo.owner.stripeConnectAccountId!,
+              },
+            },
+          }
+        : {}),
       success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/purchases?paid=${purchase.id}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/photos/${photo.slug}?cancelled=1`,
     });

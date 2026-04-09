@@ -301,10 +301,125 @@ CI で全層を実行。
 
 ---
 
-## 12. 既知の制約と将来の改善
+## 12. 顔検出 (Face Detection)
 
-- [ ] MVP の顔検出は精度が低い可能性 → AWS Rekognition へ移行
-- [ ] 大きい画像の処理は時間がかかる → Background Job (BullMQ/Inngest) 化
-- [ ] 現状レビューは単純星評価のみ → 画像品質指標を追加
-- [ ] ダウンロードの回数制限ロジックが未実装
+`src/lib/face-detection.ts` にプロバイダを集約し、`FACE_DETECTION_PROVIDER`
+環境変数で切り替える。
+
+| プロバイダ | 概要 | 依存 |
+|---|---|---|
+| `stub` (デフォルト) | 常に空配列を返す。UI 側の手動指定のみ利用 | なし |
+| `rekognition` | AWS Rekognition `DetectFaces` API | `@aws-sdk/client-rekognition` + AWS 認証情報 |
+
+検出結果は `BoundingBox` (正規化 0..1) から画像のピクセル座標に変換され、
+`PADDING_RATIO = 0.2` で周辺に余白を取って `BlurRegion[]` として返される。
+パイプライン (`processing.ts`) 側で、ユーザー承認済みの領域と自動検出結果を
+マージしてから sharp でぼかし合成を行う。
+
+---
+
+## 13. 非同期ジョブキュー
+
+`src/lib/queue.ts` に DB 駆動(Postgres)の軽量キューを実装。Redis 等の
+外部依存なしで動く。
+
+### Job モデル
+
+`Job` テーブルは `kind` / `payload` / `status` / `attempts` / `runAfter` /
+`lastError` を持つ。ステータス遷移は PENDING → RUNNING → COMPLETED | FAILED。
+
+### 競合回避
+
+`claimNext()` は `UPDATE ... FROM (SELECT ... FOR UPDATE SKIP LOCKED)
+RETURNING` パターンで 1 行を原子的にクレイムする。複数ワーカが同時実行しても
+同じジョブを拾わない。
+
+### 失敗時のバックオフ
+
+失敗時は `30 * 2^attempts` 秒の指数バックオフで `runAfter` を更新し、
+`maxAttempts` に達したら `FAILED` へ確定。
+
+### 起動方法
+
+Vercel Cron / GitHub Actions / QStash などから以下を呼び出す:
+
+```
+POST /api/jobs/worker?batch=5
+Authorization: Bearer $JOBS_WORKER_SECRET
+```
+
+### 同期 ↔ 非同期切り替え
+
+`ASYNC_PROCESSING=true` のとき、`POST /api/photos` は `process_photo`
+ジョブを enqueue して即座にレスポンスを返す。`false` の場合は従来通り
+`processPhoto()` を同期実行する(MVP デフォルト)。
+
+---
+
+## 14. Stripe Connect
+
+クリエイターへの自動送金は Stripe Connect (Express accounts) で実装。
+
+### オンボーディングフロー
+
+```
+Creator clicks "Connect"
+   │
+   ▼
+POST /api/stripe/connect/onboard
+   │ stripe.accounts.create({type: "express", country: "JP"})
+   │ stripe.accountLinks.create({type: "account_onboarding"})
+   ▼
+Redirect to hosted Stripe form
+   │
+   ▼
+GET /api/stripe/connect/return
+   │ stripe.accounts.retrieve()
+   │ → User.stripeConnectChargesEnabled / PayoutsEnabled を更新
+   ▼
+/dashboard/connect で最新ステータス表示
+```
+
+### 分割決済
+
+`POST /api/purchases` は購入対象のクリエイターを確認し、
+`canUseDirectTransfer(owner)` が true の場合のみ:
+
+```ts
+payment_intent_data: {
+  application_fee_amount: platformFeeJpy,
+  transfer_data: { destination: creator.stripeConnectAccountId },
+}
+```
+
+を渡す。Stripe が決済成立と同時に分割を行うため、プラットフォーム側で
+支払い処理を書く必要がない。
+
+クリエイターが未オンボーディングの場合はプラットフォーム残高に全額を受け、
+`Earning` 台帳に記録(将来のまとめ送金またはオンボーディング完了後の手動送金)。
+
+### Webhook
+
+`account.updated` イベントを受けて `charges_enabled` / `payouts_enabled`
+を User に同期。これにより Stripe Dashboard でクリエイターが追加情報を
+入力しても、Alibi 側が正しく認識する。
+
+---
+
+## 15. 管理画面(Photo Review)
+
+`/admin/photos?status=PENDING_REVIEW|ACTIVE|SUSPENDED` で審査キューを
+確認できる。承認(→ACTIVE)・却下(→SUSPENDED + 理由記録)・公開停止・再公開が
+可能。すべての操作は `AuditLog` に記録される。
+
+---
+
+## 16. 既知の制約と将来の改善
+
+- [x] 顔検出を AWS Rekognition 対応 (`FACE_DETECTION_PROVIDER=rekognition`)
+- [x] 画像処理の非同期ジョブ化(DB キュー + worker endpoint)
+- [x] Stripe Connect によるクリエイター自動送金
+- [x] 管理画面での写真審査(approve / reject / suspend / reinstate)
+- [ ] ダウンロードの回数制限ロジック強化(現状は単純カウンタ)
 - [ ] i18n 未対応(現状日本語のみ)
+- [ ] 観測性(Sentry, OpenTelemetry)

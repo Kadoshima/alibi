@@ -94,6 +94,13 @@ enum CouponKind {
   FIXED
 }
 
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Users & Auth
 // ---------------------------------------------------------------------------
@@ -123,6 +130,11 @@ model User {
 
   // クリエイター単位の手数料率(basis points: 2000 = 20%)
   platformFeeBps        Int                @default(2000)
+
+  // Stripe Connect (クリエイター送金先)
+  stripeConnectAccountId       String?  @unique
+  stripeConnectChargesEnabled  Boolean  @default(false)
+  stripeConnectPayoutsEnabled  Boolean  @default(false)
 
   // Relations
   accounts   Account[]
@@ -362,6 +374,28 @@ model Coupon {
 // ---------------------------------------------------------------------------
 // Analytics & Audit
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Background Jobs (DB-backed queue)
+// ---------------------------------------------------------------------------
+
+model Job {
+  id          String    @id @default(cuid())
+  kind        String
+  payload     Json
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  lastError   String?   @db.Text
+  runAfter    DateTime  @default(now())
+  claimedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAfter])
+  @@index([kind])
+}
 
 model AnalyticsEvent {
   id        String   @id @default(cuid())

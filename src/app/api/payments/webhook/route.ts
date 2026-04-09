@@ -85,6 +85,21 @@ export async function POST(req: Request) {
       break;
     }
 
+    case "account.updated": {
+      // Stripe Connect: sync charges_enabled/payouts_enabled on our side.
+      const account = event.data.object as Stripe.Account;
+      await prisma.user
+        .updateMany({
+          where: { stripeConnectAccountId: account.id },
+          data: {
+            stripeConnectChargesEnabled: account.charges_enabled ?? false,
+            stripeConnectPayoutsEnabled: account.payouts_enabled ?? false,
+          },
+        })
+        .catch(() => null);
+      break;
+    }
+
     case "charge.refunded": {
       const charge = event.data.object as Stripe.Charge;
       if (!charge.payment_intent) break;

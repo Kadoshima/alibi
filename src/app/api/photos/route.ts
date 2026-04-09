@@ -6,9 +6,13 @@ import { photoCreateSchema } from "@/lib/validators";
 import { slugify } from "@/lib/utils";
 import { writeAudit } from "@/lib/audit";
 import { processPhoto } from "@/lib/processing";
+import { enqueue } from "@/lib/queue";
 
 export const runtime = "nodejs"; // sharp requires node runtime
 
+// ---------------------------------------------------------------------------
+// GET /api/photos — list active photos (public)
+// ---------------------------------------------------------------------------
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
@@ -32,6 +36,9 @@ export async function GET(req: Request) {
   return NextResponse.json(photos);
 }
 
+// ---------------------------------------------------------------------------
+// POST /api/photos — upload finalization & processing dispatch
+// ---------------------------------------------------------------------------
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: "unauth" }, { status: 401 });
@@ -45,7 +52,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 初回アップロードで BUYER → CREATOR 昇格
+  // Role upgrade: BUYER → CREATOR on first upload
   if (session.user.role === "BUYER") {
     await prisma.user.update({
       where: { id: session.user.id },
@@ -54,7 +61,7 @@ export async function POST(req: Request) {
     await writeAudit({ userId: session.user.id, action: "ROLE_UPGRADED_TO_CREATOR" });
   }
 
-  // slug 重複回避
+  // slug uniqueness
   const baseSlug = slugify(parsed.data.title) || `photo-${Date.now()}`;
   let slug = baseSlug;
   let attempt = 0;
@@ -63,7 +70,7 @@ export async function POST(req: Request) {
     slug = `${baseSlug}-${attempt}`;
   }
 
-  // 1) Photo を DRAFT → PROCESSING で作成
+  // 1. Create Photo row (always starts as PROCESSING)
   const photo = await prisma.photo.create({
     data: {
       ownerId: session.user.id,
@@ -80,7 +87,7 @@ export async function POST(req: Request) {
     },
   });
 
-  // 2) Tag を upsert してリンク
+  // 2. Tag links
   for (const tagSlug of parsed.data.tagSlugs ?? []) {
     const tag = await prisma.tag.upsert({
       where: { slug: tagSlug },
@@ -90,7 +97,34 @@ export async function POST(req: Request) {
     await prisma.photoTag.create({ data: { photoId: photo.id, tagId: tag.id } });
   }
 
-  // 3) 画像処理パイプラインを実行 (sharp + S3)
+  // 3. Dispatch: async (enqueue job) or sync (run inline)
+  const asyncMode = process.env.ASYNC_PROCESSING === "true";
+
+  if (asyncMode) {
+    const jobId = await enqueue("process_photo", {
+      photoId: photo.id,
+      uploadKey: parsed.data.uploadKey,
+      mimeType: parsed.data.originalMime,
+      blurRegions: parsed.data.approvedBlurRegions,
+      autoDetectFaces: true,
+      userId: session.user.id,
+    });
+    await writeAudit({
+      userId: session.user.id,
+      action: "PHOTO_SUBMITTED_ASYNC",
+      target: photo.id,
+      metadata: { jobId },
+    });
+    return NextResponse.json({
+      ok: true,
+      id: photo.id,
+      slug: photo.slug,
+      jobId,
+      async: true,
+    });
+  }
+
+  // Sync path
   let result;
   try {
     result = await processPhoto({
@@ -98,6 +132,7 @@ export async function POST(req: Request) {
       uploadKey: parsed.data.uploadKey,
       mimeType: parsed.data.originalMime,
       blurRegions: parsed.data.approvedBlurRegions,
+      autoDetectFaces: true,
     });
   } catch (e) {
     await prisma.photo.update({
@@ -107,18 +142,12 @@ export async function POST(req: Request) {
         rejectedReason: `processing_error: ${e instanceof Error ? e.message : String(e)}`,
       },
     });
-    await writeAudit({
-      userId: session.user.id,
-      action: "PHOTO_PROCESSING_FAILED",
-      target: photo.id,
-    });
     return NextResponse.json(
       { error: "画像処理に失敗しました。時間をおいて再度お試しください。" },
       { status: 500 },
     );
   }
 
-  // 4) PhotoAsset を書き込み
   await prisma.photoAsset.createMany({
     data: [
       {
@@ -152,9 +181,9 @@ export async function POST(req: Request) {
         mimeType: "image/webp",
       },
     ],
+    skipDuplicates: true,
   });
 
-  // 5) Photo を PENDING_REVIEW に
   await prisma.photo.update({
     where: { id: photo.id },
     data: {
@@ -165,7 +194,6 @@ export async function POST(req: Request) {
     },
   });
 
-  // 6) 分析 + 監査ログ
   await prisma.analyticsEvent
     .create({
       data: {
@@ -195,6 +223,7 @@ export async function POST(req: Request) {
     ok: true,
     id: photo.id,
     slug: photo.slug,
+    async: false,
     processing: {
       exifStripped: result.exifStripped,
       facesBlurred: result.facesBlurred,

@@ -19,12 +19,15 @@
 import { BUCKETS, keys, extFromMime, type Bucket } from "@/lib/storage";
 import { getObjectBuffer, putObject, deleteObject } from "@/lib/s3";
 import type { BlurRegion } from "@/lib/privacy";
+import { detectFaces } from "@/lib/face-detection";
 
 export type ProcessInput = {
   photoId: string;
   uploadKey: string; // uploads/{userId}/{id}.{ext}
   mimeType: string;
   blurRegions?: BlurRegion[];
+  // サーバー側でも追加で顔検出を行い、blurRegions にマージするかどうか
+  autoDetectFaces?: boolean;
   watermarkText?: string;
 };
 
@@ -66,11 +69,22 @@ export async function processPhoto(input: ProcessInput): Promise<ProcessResult> 
     stripped = raw;
   }
 
+  // 2.5. Auto face detection (merged with user-provided regions)
+  let mergedRegions = [...(input.blurRegions ?? [])];
+  if (input.autoDetectFaces !== false && originalMeta.width > 0) {
+    try {
+      const detected = await detectFaces(stripped, originalMeta);
+      mergedRegions = [...mergedRegions, ...detected];
+    } catch (e) {
+      errors.push(`face_detect_failed:${errText(e)}`);
+    }
+  }
+
   // 3. Apply blur regions → MASKED (with optional watermark)
   let masked: Buffer = stripped;
   let facesBlurred = 0;
   try {
-    const regions = input.blurRegions ?? [];
+    const regions = mergedRegions;
     if (regions.length > 0) {
       const sharp = (await import("sharp")).default;
       const overlays = await Promise.all(

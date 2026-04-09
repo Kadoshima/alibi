@@ -170,15 +170,18 @@ npm run format           # Prettier
 
 ## 🗺️ ロードマップ
 
-**Phase 1 (MVP)** — 現在
+**Phase 1 (MVP)** — 完了
 - [x] 認証・ユーザー管理
 - [x] Stripe 決済 + Webhook(Earning台帳)
-- [x] 管理ダッシュボード・分析
+- [x] 管理ダッシュボード
 - [x] 写真アップロード & S3 保存(AWS SDK v3, MinIO/R2/S3対応)
 - [x] プライバシー自動処理パイプライン(EXIF剥ぎ・ぼかし合成・サムネ生成)
 - [x] 写真カタログ・購入フロー・購入者ダウンロード(presigned URL)
-- [x] ブラウザ内編集ツール(基本機能)
-- [ ] 顔検出の自動化(現状はクライアント手動指定)
+- [x] ブラウザ内編集ツール(Studio)
+- [x] 顔検出の自動化(AWS Rekognition プロバイダ対応)
+- [x] 非同期ジョブキュー(DB-backed, `/api/jobs/worker`)
+- [x] Stripe Connect によるクリエイター自動送金
+- [x] 管理画面での写真審査 (`/admin/photos`)
 
 **Phase 2** — 成長期
 - [ ] AI タグ付け・自動カテゴリ

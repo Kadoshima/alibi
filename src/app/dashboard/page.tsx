@@ -80,6 +80,9 @@ export default async function DashboardPage() {
         <Link href="/dashboard/sales" className="text-primary underline">
           売上
         </Link>
+        <Link href="/dashboard/connect" className="text-primary underline">
+          Stripe Connect 設定
+        </Link>
       </div>
 
       <section className="mt-10">
