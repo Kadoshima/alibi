@@ -10,27 +10,19 @@ export async function Navbar() {
       <div className="container flex h-16 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 text-lg font-bold">
           <span className="rounded bg-primary px-2 py-1 text-primary-foreground">Alibi</span>
-          <span className="hidden text-sm font-normal text-muted-foreground sm:inline">
-            Photo Market
-          </span>
         </Link>
-        <nav className="flex items-center gap-2 text-sm">
-          <Link href="/photos" className="rounded px-3 py-2 hover:bg-accent">
-            写真を探す
+        <nav className="flex items-center gap-1 text-sm">
+          <Link href="/generate" className="rounded px-3 py-2 hover:bg-accent">
+            AI合成
           </Link>
-          <Link href="/studio" className="rounded px-3 py-2 hover:bg-accent">
-            Studio
+          <Link href="/ticket-edit" className="rounded px-3 py-2 hover:bg-accent">
+            チケット編集
           </Link>
           <Link href="/pricing" className="rounded px-3 py-2 hover:bg-accent">
             料金
           </Link>
           {user ? (
             <>
-              <Link href="/upload">
-                <Button size="sm" variant="outline">
-                  出品する
-                </Button>
-              </Link>
               <Link href="/dashboard" className="rounded px-3 py-2 hover:bg-accent">
                 マイページ
               </Link>
@@ -53,7 +45,7 @@ export async function Navbar() {
                 </Button>
               </Link>
               <Link href="/register">
-                <Button size="sm">新規登録</Button>
+                <Button size="sm">無料で始める</Button>
               </Link>
             </>
           )}

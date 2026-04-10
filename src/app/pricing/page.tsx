@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Check } from "lucide-react";
+import { CREDIT_PACKS } from "@/lib/credits";
 
 export const metadata = { title: "料金プラン" };
 
@@ -9,45 +10,42 @@ const PLANS = [
   {
     name: "Free",
     priceLabel: "¥0 / 月",
-    description: "個人の利用・試用に",
+    description: "まずは試してみたい方",
     cta: "無料で始める",
     href: "/register",
     features: [
-      "写真の閲覧・購入",
-      "Studio(基本編集)の無料利用",
-      "月5枚までの出品",
-      "販売手数料 20%",
+      "月2クレジット(2枚生成)",
+      "全テンプレート利用可",
+      "チケット日付編集",
     ],
   },
   {
     name: "Pro",
     priceLabel: "¥980 / 月",
-    description: "本格的にクリエイター活動したい方に",
+    description: "定期的に使う方に",
     highlight: true,
     cta: "Proにアップグレード",
     href: "/register?plan=pro",
     features: [
-      "出品無制限",
-      "販売手数料 20% → 15%",
-      "Studio の高度編集機能",
-      "AI タグ付け",
-      "売上詳細分析",
-      "紹介プログラム報酬 +5%",
+      "月30クレジット",
+      "プレミアムテンプレート利用可",
+      "生成優先キュー",
+      "チケット日付編集",
+      "履歴無期限保存",
     ],
   },
   {
-    name: "Business",
-    priceLabel: "¥4,980 / 月",
-    description: "チーム・法人向け",
-    cta: "詳細を問い合わせる",
-    href: "/contact",
+    name: "Unlimited",
+    priceLabel: "¥2,980 / 月",
+    description: "ヘビーユーザー向け",
+    cta: "Unlimitedにする",
+    href: "/register?plan=unlimited",
     features: [
-      "Pro の全機能",
-      "カスタム手数料率",
-      "API アクセス",
-      "チームメンバー管理",
-      "専任サポート",
-      "SLA",
+      "無制限クレジット",
+      "全機能利用可",
+      "最優先キュー",
+      "一括生成(バッチ)",
+      "APIアクセス(将来)",
     ],
   },
 ];
@@ -57,7 +55,7 @@ export default function PricingPage() {
     <div className="container py-16">
       <h1 className="text-center text-4xl font-bold">料金プラン</h1>
       <p className="mt-3 text-center text-muted-foreground">
-        ご利用スタイルに合わせて最適なプランをお選びください。
+        1枚ずつ購入もOK。サブスクならもっとお得。
       </p>
 
       <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -88,6 +86,25 @@ export default function PricingPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="mt-16">
+        <h2 className="text-center text-2xl font-bold">都度購入(クレジットパック)</h2>
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {CREDIT_PACKS.map((pack, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <CardTitle>{pack.label}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">¥{pack.priceJpy.toLocaleString()}</div>
+                <p className="text-sm text-muted-foreground">
+                  {pack.credits} クレジット (1枚 ¥{Math.floor(pack.priceJpy / pack.credits)})
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );

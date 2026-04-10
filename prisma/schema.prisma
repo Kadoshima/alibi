@@ -1,11 +1,7 @@
-// Prisma schema — Alibi Photo Market
+// Prisma schema — Alibi (アリバイ素材メーカー)
 //
-// Design notes:
-// - 写真(Photo)は 1:N で PhotoAsset を持つ(ORIGINAL / MASKED / THUMB)
-// - 購入(PhotoPurchase)は 1:1 で Payment(Stripe)と紐づく
-// - ライセンスは Photo 単位で許可種別を記録、購入時に具体 License を選択
-// - Earning はクリエイターへの送金原資 ledger
-// - AuditLog は全ての privileged 操作を記録
+// AI顔合成 + チケット日付編集ツール。
+// 「今日○○にいた」を証明する素材を自分のために作れるサービス。
 
 generator client {
   provider = "prisma-client-js"
@@ -21,65 +17,14 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 enum UserRole {
-  BUYER
-  CREATOR
+  USER
   ADMIN
 }
 
-enum PhotoStatus {
-  DRAFT           // アップロード直後、処理待ち
-  PROCESSING      // プライバシー処理中
-  PENDING_REVIEW  // ユーザー承認待ち or 管理者審査待ち
-  ACTIVE          // 公開中
-  SUSPENDED       // 停止
-  ARCHIVED        // アーカイブ
-}
-
-enum AssetVariant {
-  ORIGINAL // 透かしなし原本(非公開、購入者のみ署名付きURLで取得)
-  MASKED   // プライバシー処理済み(公開プレビュー)
-  THUMB    // サムネイル(公開CDN配信)
-}
-
-enum LicenseKind {
-  PERSONAL
-  COMMERCIAL
-  EXTENDED
-}
-
-enum PurchaseStatus {
-  PENDING
-  PAID
-  REFUNDED
-  FAILED
-}
-
-enum PaymentStatus {
-  PENDING
-  AUTHORIZED
-  CAPTURED
-  REFUNDED
-  FAILED
-}
-
-enum EarningSource {
-  SALE
-  REFERRAL
-  BONUS
-  ADJUSTMENT
-}
-
-enum EarningStatus {
-  PENDING
-  AVAILABLE
-  PAID_OUT
-  CANCELLED
-}
-
 enum SubscriptionPlan {
-  FREE
-  PRO
-  BUSINESS
+  FREE      // 月2枚
+  PRO       // 月30枚, ¥980
+  UNLIMITED // 無制限, ¥2,980
 }
 
 enum SubscriptionStatus {
@@ -89,9 +34,24 @@ enum SubscriptionStatus {
   TRIALING
 }
 
-enum CouponKind {
-  PERCENT
-  FIXED
+enum TemplateCategory {
+  CINEMA
+  RESTAURANT
+  BAR
+  CAFE
+  TRAVEL
+  SPORTS
+  SHOPPING
+  OUTDOOR
+  EVENT
+  OTHER
+}
+
+enum GenerationStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 enum JobStatus {
@@ -99,6 +59,11 @@ enum JobStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+enum CouponKind {
+  PERCENT
+  FIXED
 }
 
 // ---------------------------------------------------------------------------
@@ -112,38 +77,33 @@ model User {
   name                  String?
   image                 String?
   passwordHash          String?
-  role                  UserRole           @default(BUYER)
+  role                  UserRole           @default(USER)
   locale                String             @default("ja")
   termsAcceptedAt       DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
-  // 成長 & 収益
-  referralCode          String?            @unique
-  referredById          String?
-  referredBy            User?              @relation("UserReferrals", fields: [referredById], references: [id])
-  referrals             User[]             @relation("UserReferrals")
+  // Subscription
   subscriptionPlan      SubscriptionPlan   @default(FREE)
   subscriptionStatus    SubscriptionStatus @default(ACTIVE)
   subscriptionExpiresAt DateTime?
   stripeCustomerId      String?            @unique
 
-  // クリエイター単位の手数料率(basis points: 2000 = 20%)
-  platformFeeBps        Int                @default(2000)
-
-  // Stripe Connect (クリエイター送金先)
-  stripeConnectAccountId       String?  @unique
-  stripeConnectChargesEnabled  Boolean  @default(false)
-  stripeConnectPayoutsEnabled  Boolean  @default(false)
+  // Referral
+  referralCode          String?            @unique
+  referredById          String?
+  referredBy            User?              @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals             User[]             @relation("UserReferrals")
 
   // Relations
-  accounts   Account[]
-  sessions   Session[]
-  photos     Photo[]          @relation("OwnerPhotos")
-  purchases  PhotoPurchase[]  @relation("BuyerPurchases")
-  earnings   Earning[]
-  reviews    PhotoReview[]    @relation("ReviewAuthor")
-  auditLogs  AuditLog[]
+  accounts           Account[]
+  sessions           Session[]
+  facePhotos         FacePhoto[]
+  generations        Generation[]
+  ticketEdits        TicketEdit[]
+  creditBalance      CreditBalance?
+  creditTransactions CreditTransaction[]
+  auditLogs          AuditLog[]
 
   @@index([role])
 }
@@ -184,199 +144,169 @@ model VerificationToken {
 }
 
 // ---------------------------------------------------------------------------
-// Photos & Assets
+// Face Photos (ユーザーの登録顔写真)
 // ---------------------------------------------------------------------------
 
-model Photo {
-  id            String      @id @default(cuid())
-  ownerId       String
-  title         String
-  slug          String      @unique
-  description   String?     @db.Text
-  status        PhotoStatus @default(DRAFT)
-
-  // 価格(PERSONAL ライセンス基準、JPY)
-  priceJpy      Int         @default(500)
-
-  // 許可する最大ライセンス種別(PERSONAL のみ / COMMERCIAL まで / EXTENDED まで)
-  maxLicense    LicenseKind @default(COMMERCIAL)
-
-  // プライバシー処理結果(監査用)
-  privacyFacesCount    Int  @default(0)
-  privacyExifStripped  Boolean @default(false)
-  privacyProcessedAt   DateTime?
-
-  // 画像メタ(MASKED のもの)
-  width         Int?
-  height        Int?
-  bytes         Int?
-  mimeType      String?
-
-  // 管理
-  rejectedReason String?    @db.Text
-  approvedAt    DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-
-  // Relations
-  owner      User            @relation("OwnerPhotos", fields: [ownerId], references: [id], onDelete: Cascade)
-  assets     PhotoAsset[]
-  tags       PhotoTag[]
-  purchases  PhotoPurchase[]
-  reviews    PhotoReview[]
-
-  @@index([status])
-  @@index([ownerId])
-  @@index([createdAt])
-}
-
-model PhotoAsset {
-  id        String       @id @default(cuid())
-  photoId   String
-  variant   AssetVariant
-  bucket    String
+model FacePhoto {
+  id        String   @id @default(cuid())
+  userId    String
   s3Key     String
+  bucket    String
   width     Int
   height    Int
   bytes     Int
   mimeType  String
-  createdAt DateTime     @default(now())
+  label     String?  // 「正面」「横顔」等の任意ラベル
+  createdAt DateTime @default(now())
 
-  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generations Generation[]
 
-  @@unique([photoId, variant])
-  @@index([photoId])
-}
-
-model Tag {
-  id        String     @id @default(cuid())
-  name      String     @unique
-  slug      String     @unique
-  createdAt DateTime   @default(now())
-
-  photos PhotoTag[]
-}
-
-model PhotoTag {
-  photoId String
-  tagId   String
-
-  photo Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([photoId, tagId])
-  @@index([tagId])
+  @@index([userId])
 }
 
 // ---------------------------------------------------------------------------
-// Purchases & Payments
+// Templates (シーン別ベース画像、管理者がキュレーション)
 // ---------------------------------------------------------------------------
 
-model PhotoPurchase {
-  id                String         @id @default(cuid())
-  buyerId           String
-  photoId           String
-  licenseKind       LicenseKind
-  grossJpy          Int
-  discountJpy       Int            @default(0)
-  platformFeeJpy    Int
-  creatorEarningsJpy Int
-  couponCode        String?
-  status            PurchaseStatus @default(PENDING)
-  downloadCount     Int            @default(0)
-  maxDownloads      Int            @default(5)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  paidAt            DateTime?
+model Template {
+  id           String           @id @default(cuid())
+  title        String
+  slug         String           @unique
+  description  String?
+  category     TemplateCategory
+  s3Key        String           // フルサイズのベース画像
+  thumbS3Key   String           // サムネイル
+  bucket       String
+  premium      Boolean          @default(false) // プレミアム = 2クレジット
+  active       Boolean          @default(true)
+  sortOrder    Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
-  buyer    User     @relation("BuyerPurchases", fields: [buyerId], references: [id])
-  photo    Photo    @relation(fields: [photoId], references: [id])
-  payment  Payment?
-  coupon   Coupon?  @relation(fields: [couponCode], references: [code])
+  generations Generation[]
 
-  @@index([buyerId])
-  @@index([photoId])
-  @@index([status])
+  @@index([category])
+  @@index([active, sortOrder])
 }
 
-model Payment {
-  id                    String        @id @default(cuid())
-  purchaseId            String        @unique
-  amountJpy             Int
-  status                PaymentStatus @default(PENDING)
-  stripePaymentIntentId String?       @unique
-  stripeChargeId        String?
-  stripeCheckoutSessionId String?     @unique
-  refundedJpy           Int           @default(0)
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+// ---------------------------------------------------------------------------
+// AI Generations (顔合成結果)
+// ---------------------------------------------------------------------------
 
-  purchase PhotoPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+model Generation {
+  id              String           @id @default(cuid())
+  userId          String
+  templateId      String?
+  facePhotoId     String?
+  status          GenerationStatus @default(QUEUED)
+  // Custom prompt for freeform scene (future)
+  prompt          String?          @db.Text
+  // Replicate prediction ID
+  replicatePredId String?
+  // Result
+  resultS3Key     String?
+  resultBucket    String?
+  creditsUsed     Int              @default(1)
+  error           String?          @db.Text
+  createdAt       DateTime         @default(now())
+  completedAt     DateTime?
 
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template  Template?  @relation(fields: [templateId], references: [id])
+  facePhoto FacePhoto? @relation(fields: [facePhotoId], references: [id])
+
+  @@index([userId])
   @@index([status])
+  @@index([createdAt])
 }
 
-model Earning {
-  id          String        @id @default(cuid())
-  userId      String
-  amountJpy   Int
-  source      EarningSource
-  status      EarningStatus @default(AVAILABLE)
-  sourceId    String? // 関連レコード(purchase id 等)
-  note        String?
-  createdAt   DateTime      @default(now())
-  paidOutAt   DateTime?
+// ---------------------------------------------------------------------------
+// Ticket Date Editing (チケット日付編集)
+// ---------------------------------------------------------------------------
+
+model TicketEdit {
+  id             String   @id @default(cuid())
+  userId         String
+  originalS3Key  String
+  originalBucket String
+  editedS3Key    String?
+  editedBucket   String?
+  detectedDate   String?  // OCR で検出した元日付
+  newDate        String?  // ユーザーが指定した新日付
+  creditsUsed    Int      @default(1)
+  createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Credit System
+// ---------------------------------------------------------------------------
+
+model CreditBalance {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  credits   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int      // positive = 追加, negative = 消費
+  reason    String   // purchase, subscription_renewal, generation, ticket_edit, bonus, refund
+  sourceId  String?  // 関連レコードID
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Stripe Payments (都度クレジット購入)
+// ---------------------------------------------------------------------------
+
+model CreditPurchase {
+  id                      String   @id @default(cuid())
+  userId                  String
+  credits                 Int
+  amountJpy               Int
+  stripeCheckoutSessionId String?  @unique
+  stripePaymentIntentId   String?  @unique
+  status                  String   @default("PENDING") // PENDING | PAID | FAILED
+  createdAt               DateTime @default(now())
+  paidAt                  DateTime?
 
   @@index([userId])
   @@index([status])
 }
 
 // ---------------------------------------------------------------------------
-// Reviews
-// ---------------------------------------------------------------------------
-
-model PhotoReview {
-  id        String   @id @default(cuid())
-  photoId   String
-  authorId  String
-  rating    Int
-  comment   String?  @db.Text
-  createdAt DateTime @default(now())
-
-  photo  Photo @relation(fields: [photoId], references: [id], onDelete: Cascade)
-  author User  @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-
-  @@unique([photoId, authorId])
-  @@index([photoId])
-}
-
-// ---------------------------------------------------------------------------
-// Growth: Coupon
+// Coupons
 // ---------------------------------------------------------------------------
 
 model Coupon {
   code           String     @id
   kind           CouponKind
-  valueJpy       Int?
-  percentBps     Int?
+  valueCredits   Int?       // FIXED: 付与クレジット数
+  percentBps     Int?       // PERCENT: 追加%
   maxRedemptions Int?
   redeemedCount  Int        @default(0)
   validFrom      DateTime?
   validUntil     DateTime?
   active         Boolean    @default(true)
   createdAt      DateTime   @default(now())
-
-  purchases PhotoPurchase[]
 }
 
 // ---------------------------------------------------------------------------
-// Analytics & Audit
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Background Jobs (DB-backed queue)
+// Background Jobs
 // ---------------------------------------------------------------------------
 
 model Job {
@@ -396,6 +326,10 @@ model Job {
   @@index([status, runAfter])
   @@index([kind])
 }
+
+// ---------------------------------------------------------------------------
+// Analytics & Audit
+// ---------------------------------------------------------------------------
 
 model AnalyticsEvent {
   id        String   @id @default(cuid())

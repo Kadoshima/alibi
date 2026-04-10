@@ -1,110 +1,123 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { getBalance } from "@/lib/credits";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { formatJpy } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { formatDateTime } from "@/lib/utils";
 
 export const metadata = { title: "マイページ" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
-
-  const [purchases, uploads, earningsAgg] = await Promise.all([
-    prisma.photoPurchase.findMany({
-      where: { buyerId: user.id },
-      include: { photo: { select: { title: true, slug: true } } },
+  const [credits, faceCount, recentGens, recentEdits] = await Promise.all([
+    getBalance(user.id),
+    prisma.facePhoto.count({ where: { userId: user.id } }),
+    prisma.generation.findMany({
+      where: { userId: user.id },
+      include: { template: { select: { title: true } } },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
-    prisma.photo.findMany({
-      where: { ownerId: user.id },
+    prisma.ticketEdit.findMany({
+      where: { userId: user.id },
       orderBy: { createdAt: "desc" },
       take: 5,
-    }),
-    prisma.earning.aggregate({
-      where: { userId: user.id, status: "AVAILABLE" },
-      _sum: { amountJpy: true },
     }),
   ]);
 
   return (
     <div className="container py-10">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">マイページ</h1>
-          <p className="text-muted-foreground">
-            {user.name ?? user.email} さん / ロール: {user.role}
-          </p>
-        </div>
+        <h1 className="text-3xl font-bold">マイページ</h1>
         <div className="flex gap-2">
-          <Link href="/upload">
-            <Button>写真をアップロード</Button>
+          <Link href="/generate">
+            <Button>AI合成</Button>
           </Link>
-          <Link href="/studio">
-            <Button variant="outline">編集ツールを開く</Button>
+          <Link href="/ticket-edit">
+            <Button variant="outline">チケット編集</Button>
           </Link>
         </div>
       </div>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">購入数</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">クレジット残高</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold">{purchases.length}</CardContent>
+          <CardContent className="flex items-end justify-between">
+            <span className="text-3xl font-bold text-primary">{credits}</span>
+            <Link href="/pricing">
+              <Button size="sm" variant="outline">
+                追加購入
+              </Button>
+            </Link>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">出品数</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">登録顔写真</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold">{uploads.length}</CardContent>
+          <CardContent className="flex items-end justify-between">
+            <span className="text-3xl font-bold">{faceCount}</span>
+            <Link href="/dashboard/faces">
+              <Button size="sm" variant="outline">
+                管理
+              </Button>
+            </Link>
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">未出金売上</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">プラン</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-bold text-primary">
-            {formatJpy(earningsAgg._sum.amountJpy ?? 0)}
+          <CardContent>
+            <span className="text-2xl font-bold">{user.role === "ADMIN" ? "ADMIN" : "FREE"}</span>
           </CardContent>
         </Card>
       </div>
 
-      <div className="mt-8 flex flex-wrap gap-4 text-sm">
-        <Link href="/dashboard/purchases" className="text-primary underline">
-          購入履歴・ダウンロード
-        </Link>
-        <Link href="/dashboard/uploads" className="text-primary underline">
-          出品中の写真
-        </Link>
-        <Link href="/dashboard/sales" className="text-primary underline">
-          売上
-        </Link>
-        <Link href="/dashboard/connect" className="text-primary underline">
-          Stripe Connect 設定
-        </Link>
-      </div>
-
       <section className="mt-10">
-        <h2 className="text-xl font-semibold">最近の購入</h2>
+        <h2 className="text-xl font-semibold">最近の生成</h2>
         <div className="mt-3 space-y-2">
-          {purchases.length === 0 && (
-            <p className="text-sm text-muted-foreground">購入履歴はまだありません。</p>
+          {recentGens.length === 0 && (
+            <p className="text-sm text-muted-foreground">まだ生成していません</p>
           )}
-          {purchases.map((p) => (
-            <Link href={`/photos/${p.photo.slug}`} key={p.id}>
+          {recentGens.map((g) => (
+            <Link href={`/dashboard/history/${g.id}`} key={g.id}>
               <Card className="transition hover:border-primary">
                 <CardContent className="flex items-center justify-between p-4 text-sm">
                   <div>
-                    <div className="font-medium">{p.photo.title}</div>
+                    <div className="font-medium">{g.template?.title ?? "Custom"}</div>
                     <div className="text-xs text-muted-foreground">
-                      {p.licenseKind} / {p.status}
+                      {formatDateTime(g.createdAt)}
                     </div>
                   </div>
-                  <div className="font-bold">{formatJpy(p.grossJpy - p.discountJpy)}</div>
+                  <Badge variant={g.status === "COMPLETED" ? "success" : "secondary"}>
+                    {g.status}
+                  </Badge>
                 </CardContent>
               </Card>
             </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <h2 className="text-xl font-semibold">最近のチケット編集</h2>
+        <div className="mt-3 space-y-2">
+          {recentEdits.length === 0 && (
+            <p className="text-sm text-muted-foreground">まだ編集していません</p>
+          )}
+          {recentEdits.map((e) => (
+            <Card key={e.id}>
+              <CardContent className="flex items-center justify-between p-4 text-sm">
+                <div className="text-xs text-muted-foreground">
+                  {formatDateTime(e.createdAt)} / 新日付: {e.newDate}
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </section>

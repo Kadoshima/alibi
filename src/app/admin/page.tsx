@@ -2,27 +2,19 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatJpy } from "@/lib/utils";
 
 export const metadata = { title: "管理ダッシュボード" };
 
 export default async function AdminPage() {
   await requireAdmin();
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-
-  const [userCount, photoCount, pendingPhotos, purchaseCount, monthAgg, recentAudit] =
+  const [userCount, templateCount, genCount, genQueued, ticketCount, recentAudit] =
     await Promise.all([
       prisma.user.count(),
-      prisma.photo.count(),
-      prisma.photo.count({ where: { status: "PENDING_REVIEW" } }),
-      prisma.photoPurchase.count({ where: { status: "PAID" } }),
-      prisma.photoPurchase.aggregate({
-        where: { status: "PAID", paidAt: { gte: monthStart } },
-        _sum: { grossJpy: true, platformFeeJpy: true },
-      }),
+      prisma.template.count(),
+      prisma.generation.count(),
+      prisma.generation.count({ where: { status: "QUEUED" } }),
+      prisma.ticketEdit.count(),
       prisma.auditLog.findMany({
         orderBy: { createdAt: "desc" },
         take: 15,
@@ -33,26 +25,17 @@ export default async function AdminPage() {
   return (
     <div className="container py-10">
       <h1 className="text-3xl font-bold">管理ダッシュボード</h1>
-
       <div className="mt-6 grid gap-4 md:grid-cols-5">
         <StatCard label="ユーザー" value={userCount} />
-        <StatCard label="写真" value={photoCount} />
-        <StatCard
-          label="審査待ち"
-          value={pendingPhotos}
-          accent="text-amber-600"
-          href="/admin/photos"
-        />
-        <StatCard label="購入累計" value={purchaseCount} />
-        <StatCard label="当月プラットフォーム収益" value={formatJpy(monthAgg._sum.platformFeeJpy ?? 0)} />
+        <StatCard label="テンプレート" value={templateCount} />
+        <StatCard label="AI生成" value={genCount} />
+        <StatCard label="キュー待ち" value={genQueued} accent="text-amber-600" />
+        <StatCard label="チケット編集" value={ticketCount} />
       </div>
 
       <div className="mt-8 flex flex-wrap gap-4 text-sm">
-        <Link href="/admin/photos" className="text-primary underline">
-          写真審査
-        </Link>
-        <Link href="/admin/coupons" className="text-primary underline">
-          クーポン管理
+        <Link href="/admin/templates" className="text-primary underline">
+          テンプレート管理
         </Link>
       </div>
 
@@ -85,18 +68,8 @@ export default async function AdminPage() {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-  href,
-}: {
-  label: string;
-  value: string | number;
-  accent?: string;
-  href?: string;
-}) {
-  const body = (
+function StatCard({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
+  return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm text-muted-foreground">{label}</CardTitle>
@@ -104,5 +77,4 @@ function StatCard({
       <CardContent className={`text-2xl font-bold ${accent ?? ""}`}>{value}</CardContent>
     </Card>
   );
-  return href ? <Link href={href}>{body}</Link> : body;
 }

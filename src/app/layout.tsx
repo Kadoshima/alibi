@@ -5,11 +5,11 @@ import { Footer } from "@/components/site/footer";
 
 export const metadata: Metadata = {
   title: {
-    default: "Alibi - 合法的アリバイサービス・プラットフォーム",
+    default: "Alibi — AI アリバイ素材メーカー",
     template: "%s | Alibi",
   },
   description:
-    "フリーランス向け在籍確認・サプライズ企画・代理出席など、合法的用途に限定したアリバイ関連サービスのマーケットプレイスです。",
+    "サプライズの準備中や断りにくい誘いに。AI顔合成&チケット日付編集で自然なアリバイ素材を作れるサービス。",
   openGraph: {
     type: "website",
     locale: "ja_JP",

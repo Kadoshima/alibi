@@ -2,28 +2,28 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Camera, Palette, TrendingUp } from "lucide-react";
+import { Camera, Ticket, Sparkles, ShieldCheck } from "lucide-react";
 
-const HIGHLIGHTS = [
-  {
-    icon: ShieldCheck,
-    title: "プライバシー自動処理",
-    body: "EXIF(位置情報等)は全削除、顔は自動検出してぼかし。公開前に必ずチェック。",
-  },
-  {
-    icon: Palette,
-    title: "ブラウザ完結の編集",
-    body: "インストール不要。Studioでトリミング・色調補正・フィルタ・透かしまで。",
-  },
+const FEATURES = [
   {
     icon: Camera,
-    title: "合法な写真販売",
-    body: "個人利用・商用・拡張商用のライセンスを選んで購入。購入者は原本を直接DL。",
+    title: "AI 顔合成",
+    body: "自分の顔写真を登録して、映画館・レストラン・旅行先などの「自分がいた写真」を AI で生成。",
   },
   {
-    icon: TrendingUp,
-    title: "クリエイター優遇",
-    body: "販売額の80%がクリエイター取り分。業界平均(50%前後)より大幅に高い配分。",
+    icon: Ticket,
+    title: "チケット日付編集",
+    body: "映画・コンサート・スポーツ等のチケット画像の日付だけを変更。※領収書・レシートは不可。",
+  },
+  {
+    icon: Sparkles,
+    title: "豊富なテンプレート",
+    body: "映画館、飲み会、旅行先、スポーツ観戦…場面別テンプレートでリアルなアリバイ素材を作成。",
+  },
+  {
+    icon: ShieldCheck,
+    title: "安心設計",
+    body: "領収書・レシートは自動検出してブロック。脱税・犯罪に使えない仕組みで安心。",
   },
 ];
 
@@ -33,47 +33,45 @@ export default function HomePage() {
       <section className="border-b bg-gradient-to-b from-primary/5 to-background">
         <div className="container py-20">
           <Badge variant="outline" className="mb-4">
-            Privacy-First Photo Marketplace
+            AI アリバイ素材メーカー
           </Badge>
           <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl">
-            あなたの写真を、
+            「行ってた」を、
             <br />
-            安心して売れる場所。
+            つくれる。
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-            EXIF削除・顔ぼかし・商用ライセンス販売を一体化した、
-            プライバシー配慮型の写真マーケット。
-            ブラウザ内編集ツール付きで、スマホの1枚からプロの1枚まで。
+            サプライズの準備中、断りにくい誘いに。
+            自分の顔写真を使った AI 合成画像やチケットの日付編集で、
+            自然なアリバイ素材を作れるサービスです。
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
-            <Link href="/photos">
-              <Button size="lg">写真を探す</Button>
+            <Link href="/generate">
+              <Button size="lg">アリバイを作る</Button>
             </Link>
-            <Link href="/studio">
+            <Link href="/ticket-edit">
               <Button size="lg" variant="outline">
-                Studioを試す
-              </Button>
-            </Link>
-            <Link href="/upload">
-              <Button size="lg" variant="ghost">
-                出品する
+                チケットを編集
               </Button>
             </Link>
           </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            ※ 領収書・レシートの加工は脱税防止のため利用できません
+          </p>
         </div>
       </section>
 
       <section className="container py-16">
-        <h2 className="mb-8 text-2xl font-bold">Alibi が選ばれる理由</h2>
+        <h2 className="mb-8 text-2xl font-bold">Alibi でできること</h2>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {HIGHLIGHTS.map((h) => (
-            <Card key={h.title}>
+          {FEATURES.map((f) => (
+            <Card key={f.title}>
               <CardHeader>
-                <h.icon className="h-8 w-8 text-primary" />
-                <CardTitle className="mt-2">{h.title}</CardTitle>
+                <f.icon className="h-8 w-8 text-primary" />
+                <CardTitle className="mt-2">{f.title}</CardTitle>
               </CardHeader>
               <CardContent>
-                <CardDescription>{h.body}</CardDescription>
+                <CardDescription>{f.body}</CardDescription>
               </CardContent>
             </Card>
           ))}
@@ -82,13 +80,20 @@ export default function HomePage() {
 
       <section className="border-t bg-muted/30">
         <div className="container py-16 text-center">
-          <h2 className="text-2xl font-bold">まずは写真を見てみる</h2>
+          <h2 className="text-2xl font-bold">月2枚まで無料</h2>
           <p className="mt-3 text-muted-foreground">
-            登録不要でカタログを閲覧可能。購入にはログインが必要です。
+            登録するだけで毎月2クレジットが付与。まずは無料で試してみてください。
           </p>
-          <Link href="/photos" className="mt-6 inline-block">
-            <Button size="lg">カタログを見る</Button>
-          </Link>
+          <div className="mt-6 flex justify-center gap-4">
+            <Link href="/register">
+              <Button size="lg">無料で始める</Button>
+            </Link>
+            <Link href="/pricing">
+              <Button size="lg" variant="outline">
+                料金プラン
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
     </>

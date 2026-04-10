@@ -1,20 +1,20 @@
-// Registers all background job handlers.
+// Background job handlers.
 //
-// Import this module once at the entry point of any worker / route that
-// needs to dispatch jobs (e.g. /api/jobs/worker). Registration is idempotent.
+// Registers: run_face_swap (AI generation processing)
 
 import { registerHandler } from "@/lib/queue";
-import { processPhoto } from "@/lib/processing";
+import { runFaceSwap } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
+import { presignDownload, BUCKETS } from "@/lib/storage";
+import { getObjectBuffer, putObject } from "@/lib/s3";
 import { writeAudit } from "@/lib/audit";
-import type { BlurRegion } from "@/lib/privacy";
 
-type ProcessPhotoJobPayload = {
-  photoId: string;
-  uploadKey: string;
-  mimeType: string;
-  blurRegions?: BlurRegion[];
-  autoDetectFaces?: boolean;
+type FaceSwapJobPayload = {
+  generationId: string;
+  templateS3Key: string;
+  templateBucket: string;
+  faceS3Key: string;
+  faceBucket: string;
   userId: string;
 };
 
@@ -24,67 +24,71 @@ export function registerAllHandlers() {
   if (registered) return;
   registered = true;
 
-  registerHandler<ProcessPhotoJobPayload>("process_photo", async (payload) => {
-    const result = await processPhoto({
-      photoId: payload.photoId,
-      uploadKey: payload.uploadKey,
-      mimeType: payload.mimeType,
-      blurRegions: payload.blurRegions,
-      autoDetectFaces: payload.autoDetectFaces,
+  registerHandler<FaceSwapJobPayload>("run_face_swap", async (payload) => {
+    await prisma.generation.update({
+      where: { id: payload.generationId },
+      data: { status: "PROCESSING" },
     });
 
-    // Persist PhotoAsset rows
-    await prisma.photoAsset.createMany({
-      data: [
-        {
-          photoId: payload.photoId,
-          variant: "ORIGINAL",
-          bucket: result.original.bucket,
-          s3Key: result.original.key,
-          width: result.original.width,
-          height: result.original.height,
-          bytes: result.original.bytes,
-          mimeType: payload.mimeType,
-        },
-        {
-          photoId: payload.photoId,
-          variant: "MASKED",
-          bucket: result.masked.bucket,
-          s3Key: result.masked.key,
-          width: result.masked.width,
-          height: result.masked.height,
-          bytes: result.masked.bytes,
-          mimeType: payload.mimeType,
-        },
-        {
-          photoId: payload.photoId,
-          variant: "THUMB",
-          bucket: result.thumb.bucket,
-          s3Key: result.thumb.key,
-          width: result.thumb.width,
-          height: result.thumb.height,
-          bytes: result.thumb.bytes,
-          mimeType: "image/webp",
-        },
-      ],
-      skipDuplicates: true,
+    // Get presigned URLs for Replicate (needs public URLs)
+    const sourceUrl = await presignDownload({
+      bucket: payload.templateBucket as typeof BUCKETS.PUBLIC,
+      key: payload.templateS3Key,
+      expiresSec: 600,
+    });
+    const targetUrl = await presignDownload({
+      bucket: payload.faceBucket as typeof BUCKETS.PRIVATE,
+      key: payload.faceS3Key,
+      expiresSec: 600,
     });
 
-    await prisma.photo.update({
-      where: { id: payload.photoId },
+    const result = await runFaceSwap({
+      sourceImageUrl: sourceUrl,
+      targetFaceUrl: targetUrl,
+    });
+
+    if (!result.ok || !result.outputUrl) {
+      await prisma.generation.update({
+        where: { id: payload.generationId },
+        data: { status: "FAILED", error: result.error ?? "unknown" },
+      });
+      throw new Error(result.error ?? "face swap failed");
+    }
+
+    // Download the result and store in S3
+    const resultKey = `generations/${payload.generationId}.jpg`;
+    try {
+      const imageRes = await fetch(result.outputUrl);
+      const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+      await putObject({
+        bucket: BUCKETS.PRIVATE,
+        key: resultKey,
+        body: imageBuffer,
+        contentType: "image/jpeg",
+      });
+    } catch (e) {
+      await prisma.generation.update({
+        where: { id: payload.generationId },
+        data: { status: "FAILED", error: `store_failed: ${e}` },
+      });
+      throw e;
+    }
+
+    await prisma.generation.update({
+      where: { id: payload.generationId },
       data: {
-        status: "PENDING_REVIEW",
-        privacyExifStripped: result.exifStripped,
-        privacyFacesCount: result.facesBlurred,
-        privacyProcessedAt: new Date(),
+        status: "COMPLETED",
+        resultS3Key: resultKey,
+        resultBucket: BUCKETS.PRIVATE,
+        replicatePredId: result.predictionId,
+        completedAt: new Date(),
       },
     });
 
     await writeAudit({
       userId: payload.userId,
-      action: "PHOTO_PROCESSED_ASYNC",
-      target: payload.photoId,
-      metadata: { facesBlurred: result.facesBlurred, errors: result.errors.length },
+      action: "GENERATION_COMPLETED",
+      target: payload.generationId,
     });
   });
 }
