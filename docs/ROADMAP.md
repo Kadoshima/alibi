@@ -1,129 +1,110 @@
 # Roadmap
 
+> 最終更新: 2026-04-11
+
 ---
 
-## Phase 1: MVP (現在進行中)
+## Phase 1: フレーム構築 — 完了 ✅
 
-**目的**: 写真のアップロード→プライバシー処理→購入→ダウンロードの一連のフローを最小構成で成立させる。
+**目的**: 全画面・全API・全遷移が動作するフレームの構築。
 
-### データ層
-- [x] Prisma スキーマをフォト向けに再設計
-  - `Photo`, `PhotoAsset`, `PhotoPurchase`, `Tag`, `PhotoTag`, `Earning`
-- [x] 旧 `Service` / `Booking` / `Payout` / `Report` モデルを削除
-- [x] Seed スクリプトを写真デモデータ用に書き直し
+### 認証・基盤
+- [x] NextAuth (Credentials + JWT)
+- [x] UserRole (USER / ADMIN)
+- [x] Prisma スキーマ設計
+- [x] S3 互換ストレージ (AWS SDK v3 + MinIO/R2/S3)
+- [x] レート制限 middleware
+- [x] CI/CD (GitHub Actions) + Docker + docker-compose
 
-### バックエンド
-- [x] `lib/storage.ts` — S3 ラッパー(presigned URL + バケット/キー管理)
-- [x] `lib/s3.ts` — AWS SDK v3 クライアント(MinIO/R2/S3 共通)
-- [x] `lib/processing.ts` — EXIF剥ぎ+ぼかし合成+サムネ生成パイプライン
-- [x] `lib/privacy.ts` — プライバシー関連の共通ヘルパ
-- [x] `lib/pricing.ts` — ライセンス倍率ベースの価格計算
-- [x] `lib/validators.ts` — 写真アップロード用 Zod スキーマ
-- [x] `POST /api/uploads/init` — presigned URL 発行
-- [x] `POST /api/photos` — パイプライン起動 → PhotoAsset 作成
-- [x] `GET /api/photos` — 一覧 API(フィルタ・検索対応)
-- [x] `POST /api/purchases` — 購入作成 → Stripe Checkout
-- [x] `POST /api/purchases/:id/download` — 購入者向け署名付き URL
-- [x] Stripe Webhook を購入モデル(Earning台帳)に対応
+### AI 顔合成
+- [x] `lib/ai.ts` — Replicate API クライアント (face swap, dev stub 付き)
+- [x] テンプレートモデル (10カテゴリ, premium 対応)
+- [x] `/generate` ページ (テンプレ選択 + 顔選択 + 生成リクエスト)
+- [x] `/dashboard/history/[id]` (ポーリング + ダウンロード)
+- [x] 生成失敗時のクレジット自動返還
 
-### フロントエンド
-- [x] ホームページ(新コンセプト)
-- [ ] `/photos` — カタログ(タグ・キーワード検索・ソート)
-- [ ] `/photos/[id]` — 詳細(プレビュー・ライセンス選択・購入)
-- [ ] `/upload` — アップロード→プレビュー→編集→出品のフロー
-- [ ] `/studio` — ブラウザ内編集ツール(MVP機能)
-- [ ] `/dashboard/purchases` — 購入履歴とダウンロード
-- [ ] `/dashboard/uploads` — 出品した写真の管理
-- [ ] `/dashboard/sales` — クリエイター売上ダッシュボード
+### チケット日付編集
+- [x] `/ticket-edit` ページ (Canvas + クリック配置 + DL)
+- [x] 領収書・レシート自動ブロック (`lib/content-filter.ts`)
+
+### クレジットシステム
+- [x] `lib/credits.ts` (getBalance / spendCredits / addCredits)
+- [x] `POST /api/credits/purchase` → Stripe Checkout
+- [x] Webhook → addCredits
+- [x] 3種パック (5枚, 15枚, 50枚)
+
+### 非同期ジョブキュー
+- [x] `Job` モデル + `lib/queue.ts` (DB-backed, SKIP LOCKED)
+- [x] `lib/job-handlers.ts` (run_face_swap handler)
+- [x] `POST /api/jobs/worker` (Bearer 認証)
+- [x] ASYNC_PROCESSING env で sync/async 切替
 
 ### 管理
-- [x] `/admin/photos` — 出品審査画面(approve/reject/suspend/reinstate)
+- [x] `/admin` — ダッシュボード (ユーザー数・テンプレ数・生成数・キュー)
+- [x] `/admin/templates` — テンプレートCRUD
 
-### 非同期ジョブ
-- [x] `Job` モデル + DB-backed queue (`lib/queue.ts`)
-- [x] `POST /api/jobs/worker` (Bearer 認証)
-- [x] `process_photo` ジョブハンドラ
-- [x] `ASYNC_PROCESSING` env で sync/async 切替
+### ユーザー機能
+- [x] `/dashboard` (残高・顔写真数・最近の生成)
+- [x] `/dashboard/faces` (顔写真登録・削除)
+- [x] `/dashboard/history` (生成履歴一覧)
+- [x] 顔写真 DELETE API (S3 クリーンアップ付き)
 
-### 顔検出
-- [x] プロバイダ抽象 (`lib/face-detection.ts`)
-- [x] `stub` (デフォルト) / `rekognition` 実装
-- [x] processing.ts パイプラインに統合(自動+手動マージ)
+### 決済・課金
+- [x] Stripe Checkout (都度購入)
+- [x] `POST /api/subscriptions` (サブスク購入フレーム)
+- [x] Webhook handler
 
-### Stripe Connect
-- [x] Express アカウント作成 + onboarding link
-- [x] `/dashboard/connect` UI
-- [x] 購入時の `application_fee_amount` + `transfer_data` 分割
-- [x] `account.updated` webhook で状態同期
-
-### 法的
-- [ ] 利用規約を写真マーケット向けに書き直し
-- [ ] プライバシーポリシー更新
-- [ ] ライセンス条項ページ追加
-
-### DevOps
-- [x] Docker compose に MinIO を追加(バケット自動作成)
-- [x] `.env.example` を更新(S3 / R2 / MinIO 変数)
-- [x] `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` + `sharp` を package.json に追加
+### その他
+- [x] LP (`/`)
+- [x] 料金ページ (`/pricing`)
+- [x] 法的ページ (利用規約・プライバシー)
+- [x] Seed スクリプト (テンプレ10個 + デモユーザー)
+- [x] テスト (validators, content-filter, smoke)
 
 ---
 
-## Phase 2: 成長期 (0→1 の後の 1→10)
+## Phase 2: R&D + 品質 — 未着手
 
-**目的**: 取扱高を増やし、リピート率を上げる。
+**目的**: 実際の AI 推論を接続し、プロダクトとして使えるレベルにする。
 
-- [ ] AI タグ付け(Claude API で画像説明 → タグ提案)
-- [ ] レコメンド機能(類似写真・おすすめクリエイター)
-- [ ] サブスクリプション課金 (Pro / Business)
-- [ ] 高度編集ツール(レイヤー、マスク、フィルタ合成)
-- [ ] クリエイター向け分析ダッシュボード
-- [ ] メール通知(購入・売上・レビュー)
-- [ ] お気に入り・コレクション機能
-- [ ] 紹介プログラム UI の改善
-- [ ] クーポン自動配布(新規登録時)
-- [ ] SEO 強化(構造化データ、サイトマップ、OGP)
+### AI (R&D)
+- [ ] Replicate モデルの比較検証 (face-swap 品質・速度・コスト)
+- [ ] テンプレート画像の撮影 / 調達 / 品質基準策定
+- [ ] 合成結果のクオリティチェック自動化
+- [ ] 顔写真のバリデーション (正面判定、解像度チェック)
 
----
+### チケット編集 (R&D)
+- [ ] OCR 実装 (Tesseract.js or Google Vision) で日付位置を自動検出
+- [ ] フォントマッチング (元のフォントに近い上書き)
+- [ ] 背景色サンプリング (上書きエリアの自然な塗りつぶし)
 
-## Phase 3: スケール期
+### 品質
+- [ ] テストカバレッジ拡充 (lib 層の integration test)
+- [ ] エラーハンドリングの統一
+- [ ] ローディング UI の改善 (skeleton, optimistic updates)
+- [ ] レスポンシブ最適化 (スマホメインの仕上げ)
 
-**目的**: グローバル展開・法人取込・収益多様化。
+### サブスク
+- [ ] Stripe Subscription 実接続 (Price ID 設定 + invoice.paid Webhook)
+- [ ] 月次クレジット自動付与ロジック
+- [ ] プラン変更 / キャンセル UI
 
-- [ ] Stripe Connect によるクリエイター自動送金
-- [ ] API 提供(法人向け B2B 販路)
-- [ ] モバイルアプリ(React Native)
-- [ ] 多言語対応(英語 → 中国語 → 韓国語)
-- [ ] 動画対応
-- [ ] AI 生成画像のマーケット拡張
-- [ ] ホワイトラベル提供(他社 EC に埋め込み)
-- [ ] NFT / Web3 連携(必要に応じて)
-- [ ] ISMS / Pマーク取得
-
----
-
-## 技術的負債 & 要改善項目
-
-- [ ] 顔検出を AWS Rekognition / Google Vision に切り替え
-- [ ] 画像処理の非同期ジョブ化 (BullMQ / Inngest)
-- [ ] レート制限の Redis 化
-- [ ] 観測性(Sentry, OpenTelemetry)
-- [ ] フルテストカバレッジ(現状スモーク中心)
+### インフラ
+- [ ] Sentry (エラー監視)
+- [ ] Vercel Cron でジョブワーカーを定期実行
+- [ ] 本番 S3 / R2 へのデプロイ設定
+- [ ] Replicate の本番キー設定
 
 ---
 
-## KPI (OKR)
+## Phase 3: グロース — 未着手
 
-**Phase 1 終了条件**:
-- MVP 全機能が動作
-- デモアカウントで一連のフロー(アップロード→購入→ダウンロード)が完了
-- Playwright E2E が全パス
-
-**Phase 2 目標** (ピボットから3ヶ月):
-- 月間アップロード写真数: 1,000枚
-- 月間購入数: 100件
-- 月間GMV: ¥100万
-
-**Phase 3 目標** (ピボットから1年):
-- 月間GMV: ¥1,000万
-- 月間アクティブクリエイター: 500人
-- プラットフォーム収益: ¥200万/月
+- [ ] SNS シェア機能 (生成結果をワンタップ共有)
+- [ ] 紹介プログラム UI
+- [ ] OGP / SEO 最適化
+- [ ] PWA 化 (ホーム画面起動)
+- [ ] メール通知 (生成完了、クレジット残少)
+- [ ] AI タグ付け (テンプレ自動カテゴリ分類)
+- [ ] プロンプトベース生成 (テンプレなしの自由記述)
+- [ ] 多言語対応 (英語)
+- [ ] モバイルアプリ (React Native)
