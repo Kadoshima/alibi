@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FaceUpload } from "./face-upload";
+import { FaceDelete } from "./face-delete";
 import { formatDateTime } from "@/lib/utils";
 
 export const metadata = { title: "顔写真管理" };
@@ -32,6 +33,7 @@ export default async function FacesPage() {
                   {formatDateTime(f.createdAt)} / {f.mimeType}
                 </div>
               </div>
+              <FaceDelete id={f.id} />
             </CardContent>
           </Card>
         ))}

@@ -6,8 +6,9 @@ import { registerHandler } from "@/lib/queue";
 import { runFaceSwap } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import { presignDownload, BUCKETS } from "@/lib/storage";
-import { getObjectBuffer, putObject } from "@/lib/s3";
+import { putObject } from "@/lib/s3";
 import { writeAudit } from "@/lib/audit";
+import { addCredits } from "@/lib/credits";
 
 type FaceSwapJobPayload = {
   generationId: string;
@@ -52,6 +53,20 @@ export function registerAllHandlers() {
         where: { id: payload.generationId },
         data: { status: "FAILED", error: result.error ?? "unknown" },
       });
+      // Refund credits on AI failure
+      const gen = await prisma.generation.findUnique({
+        where: { id: payload.generationId },
+        select: { creditsUsed: true },
+      });
+      if (gen) {
+        await addCredits(payload.userId, gen.creditsUsed, "refund", payload.generationId);
+        await writeAudit({
+          userId: payload.userId,
+          action: "CREDITS_REFUNDED",
+          target: payload.generationId,
+          metadata: { amount: gen.creditsUsed, reason: "generation_failed" },
+        });
+      }
       throw new Error(result.error ?? "face swap failed");
     }
 
@@ -71,6 +86,14 @@ export function registerAllHandlers() {
         where: { id: payload.generationId },
         data: { status: "FAILED", error: `store_failed: ${e}` },
       });
+      // Refund credits on storage failure
+      const gen = await prisma.generation.findUnique({
+        where: { id: payload.generationId },
+        select: { creditsUsed: true },
+      });
+      if (gen) {
+        await addCredits(payload.userId, gen.creditsUsed, "refund", payload.generationId);
+      }
       throw e;
     }
 

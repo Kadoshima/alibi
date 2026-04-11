@@ -79,7 +79,12 @@ export default async function DashboardPage() {
       </div>
 
       <section className="mt-10">
-        <h2 className="text-xl font-semibold">最近の生成</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">最近の生成</h2>
+          <Link href="/dashboard/history" className="text-sm text-primary underline">
+            全履歴を見る
+          </Link>
+        </div>
         <div className="mt-3 space-y-2">
           {recentGens.length === 0 && (
             <p className="text-sm text-muted-foreground">まだ生成していません</p>
